@@ -1,4 +1,6 @@
 import { CopilotSession, approveAll } from '@github/copilot-sdk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { CopilotBridge } from './bridge.js';
 import {
   getChannelSession, setChannelSession, clearChannelSession,
@@ -14,6 +16,80 @@ import type {
 const log = createLogger('session');
 
 type SessionEventHandler = (sessionId: string, channelId: string, event: any) => void;
+
+/**
+ * Load MCP server configs from ~/.copilot/mcp-config.json and installed plugins.
+ * Merges them into a single Record, with user config taking precedence over plugins.
+ */
+function loadMcpServers(): Record<string, any> {
+  const home = process.env.HOME;
+  if (!home) return {};
+
+  const servers: Record<string, any> = {};
+
+  // 1. Load from installed plugins (.mcp.json files)
+  const pluginsDir = path.join(home, '.copilot', 'installed-plugins');
+  if (fs.existsSync(pluginsDir)) {
+    const walk = (dir: string) => {
+      try {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            // Check for .mcp.json in this directory
+            const mcpFile = path.join(full, '.mcp.json');
+            if (fs.existsSync(mcpFile)) {
+              try {
+                const cfg = JSON.parse(fs.readFileSync(mcpFile, 'utf8'));
+                if (cfg.mcpServers) {
+                  for (const [name, config] of Object.entries(cfg.mcpServers)) {
+                    if (!servers[name]) {
+                      servers[name] = config;
+                      log.debug(`Loaded MCP "${name}" from plugin ${path.relative(pluginsDir, full)}`);
+                    }
+                  }
+                }
+              } catch (err) {
+                log.warn(`Failed to parse ${mcpFile}: ${err}`);
+              }
+            }
+            walk(full);
+          }
+        }
+      } catch { /* permission errors etc */ }
+    };
+    walk(pluginsDir);
+  }
+
+  // 2. Load from user mcp-config.json (overrides plugins)
+  const userConfig = path.join(home, '.copilot', 'mcp-config.json');
+  if (fs.existsSync(userConfig)) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(userConfig, 'utf8'));
+      if (cfg.mcpServers) {
+        for (const [name, config] of Object.entries(cfg.mcpServers)) {
+          servers[name] = config;
+          log.debug(`Loaded MCP "${name}" from mcp-config.json`);
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to parse ${userConfig}: ${err}`);
+    }
+  }
+
+  // Ensure all servers have a tools field (SDK requires it)
+  for (const [name, config] of Object.entries(servers)) {
+    if (!(config as any).tools) {
+      (config as any).tools = ['*'];
+    }
+  }
+
+  const count = Object.keys(servers).length;
+  if (count > 0) {
+    log.info(`Loaded ${count} MCP server(s): ${Object.keys(servers).join(', ')}`);
+  }
+
+  return servers;
+}
 
 /**
  * Extract individual command names from a shell command string.
@@ -39,6 +115,7 @@ export class SessionManager {
   private sessionChannels = new Map<string, string>(); // sessionId → channelId (reverse)
   private sessionUnsubscribes = new Map<string, () => void>(); // sessionId → unsubscribe fn
   private eventHandler: SessionEventHandler | null = null;
+  private mcpServers: Record<string, any>;
 
   // Pending permission requests (queue per channel to avoid overwrites)
   private pendingPermissions = new Map<string, PendingPermission[]>();
@@ -47,6 +124,7 @@ export class SessionManager {
 
   constructor(bridge: CopilotBridge) {
     this.bridge = bridge;
+    this.mcpServers = loadMcpServers();
   }
 
   /** Register a handler for session events (streaming, tool calls, etc.) */
@@ -310,6 +388,7 @@ export class SessionManager {
       workingDirectory: config.workingDirectory,
       configDir: defaultConfigDir,
       reasoningEffort: reasoningEffort ?? undefined,
+      mcpServers: this.mcpServers,
       onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
       onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
     });
@@ -337,6 +416,7 @@ export class SessionManager {
       configDir: defaultConfigDir,
       workingDirectory: config.workingDirectory,
       reasoningEffort: reasoningEffort ?? undefined,
+      mcpServers: this.mcpServers,
     });
 
     this.channelSessions.set(channelId, sessionId);
