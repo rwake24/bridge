@@ -95,12 +95,36 @@ export class SessionManager {
 
   /** Send a message to a channel's session. Returns immediately; responses come via events. */
   async sendMessage(channelId: string, text: string): Promise<string> {
+    // Auto-deny any pending permissions so the session unblocks
+    this.clearPendingPermissions(channelId);
+
     const { sessionId } = await this.ensureSession(channelId);
     const session = this.bridge.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found after ensure`);
 
     const messageId = await session.send({ prompt: text });
     return messageId;
+  }
+
+  /** Deny all pending permissions for a channel (e.g., when user sends a new message instead). */
+  private clearPendingPermissions(channelId: string): void {
+    const queue = this.pendingPermissions.get(channelId);
+    if (queue && queue.length > 0) {
+      console.log(`[session-manager] Auto-denying ${queue.length} pending permission(s) for channel ${channelId}`);
+      for (const entry of queue) {
+        entry.resolve({ allow: false });
+      }
+      this.pendingPermissions.delete(channelId);
+    }
+
+    const inputQueue = this.pendingUserInput.get(channelId);
+    if (inputQueue && inputQueue.length > 0) {
+      console.log(`[session-manager] Cancelling ${inputQueue.length} pending input request(s) for channel ${channelId}`);
+      for (const entry of inputQueue) {
+        entry.resolve({ answer: '', wasFreeform: true });
+      }
+      this.pendingUserInput.delete(channelId);
+    }
   }
 
   /** Switch the model for a channel's session. */
