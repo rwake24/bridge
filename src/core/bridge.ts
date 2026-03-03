@@ -168,10 +168,10 @@ export class CopilotBridge {
     return (session as any).rpc.model.getCurrent();
   }
 
-  async switchSessionModel(id: string, modelId: string): Promise<{ modelId: string }> {
+  async switchSessionModel(id: string, modelId: string): Promise<void> {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not active`);
-    return (session as any).rpc.model.switchTo({ modelId });
+    await session.setModel(modelId);
   }
 
   async listAgents(id: string): Promise<any[]> {
