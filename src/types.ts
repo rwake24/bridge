@@ -128,6 +128,7 @@ export interface PendingPermission {
   channelId: string;
   messageId?: string; // chat message ID for the permission prompt
   toolName: string;
+  serverName?: string; // MCP server name (for server-level /remember)
   toolInput: unknown;
   commands: string[]; // extracted individual commands
   resolve: (result: { kind: 'approved' | 'denied-by-rules' | 'denied-interactively-by-user' | 'denied-no-approval-rule-and-could-not-request-from-user' }) => void;

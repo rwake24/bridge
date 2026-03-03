@@ -298,10 +298,18 @@ export class SessionManager {
 
     const pending = queue.shift()!;
 
-    if (remember && pending.commands.length > 0) {
+    if (remember) {
       const action = allow ? 'allow' : 'deny';
-      for (const cmd of pending.commands) {
-        addPermissionRule(channelId, pending.toolName, cmd, action as 'allow' | 'deny');
+      if (pending.serverName) {
+        // MCP tool: save at server level so all tools on this server are covered
+        addPermissionRule(channelId, `mcp:${pending.serverName}`, '*', action as 'allow' | 'deny');
+        log.info(`Saved ${action} rule for MCP server "${pending.serverName}" in channel ${channelId}`);
+      } else if (pending.commands.length > 0) {
+        for (const cmd of pending.commands) {
+          addPermissionRule(channelId, pending.toolName, cmd, action as 'allow' | 'deny');
+        }
+      } else {
+        addPermissionRule(channelId, pending.toolName, '*', action as 'allow' | 'deny');
       }
     }
 
@@ -318,6 +326,7 @@ export class SessionManager {
         type: 'bridge.permission_request',
         data: {
           toolName: next.toolName,
+          serverName: next.serverName,
           input: next.toolInput,
           commands: next.commands,
         },
@@ -456,10 +465,18 @@ export class SessionManager {
     // Check stored permission rules (SQLite, from /remember)
     log.debug(`Permission request:`, JSON.stringify(request).slice(0, 500));
     const kind = (request as any).kind ?? 'unknown';
+    const serverName = (request as any).serverName as string | undefined;
     // Build a descriptive tool name from kind + available fields
     const toolName = (request as any).toolName ?? (request as any).tool_name ?? (request as any).name ?? kind;
     const toolInput = request.input ?? (request as any).arguments ?? (request as any).parameters ?? request;
     const commands = extractCommandPatterns(toolInput);
+
+    // For MCP tools, check server-level rules first (covers all tools on that server)
+    if (kind === 'mcp' && serverName) {
+      const serverResult = checkPermission(channelId, `mcp:${serverName}`, '*');
+      if (serverResult === 'allow') return Promise.resolve({ kind: 'approved' });
+      if (serverResult === 'deny') return Promise.resolve({ kind: 'denied-by-rules' });
+    }
 
     if (commands.length > 0) {
       const results = commands.map(cmd => checkPermission(channelId, toolName, cmd));
@@ -484,6 +501,7 @@ export class SessionManager {
         sessionId: invocation.sessionId,
         channelId,
         toolName,
+        serverName,
         toolInput: toolInput,
         commands,
         resolve,
@@ -503,6 +521,7 @@ export class SessionManager {
           type: 'bridge.permission_request',
           data: {
             toolName,
+            serverName,
             input: toolInput,
             commands,
           },

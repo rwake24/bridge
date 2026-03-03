@@ -73,7 +73,7 @@ export function formatEvent(event: any): FormattedEvent | null {
 /**
  * Format a permission request for display in chat.
  */
-export function formatPermissionRequest(toolName: string, input: unknown, commands: string[]): string {
+export function formatPermissionRequest(toolName: string, input: unknown, commands: string[], serverName?: string): string {
   const lines = ['🔐 **Permission Required**', ''];
   lines.push(`Tool: **${toolName}**`);
 
@@ -117,7 +117,11 @@ export function formatPermissionRequest(toolName: string, input: unknown, comman
   }
 
   lines.push('');
-  lines.push('Reply `/approve` or `/deny` (add `/remember` to persist)');
+  if (serverName) {
+    lines.push(`Reply \`/approve\` or \`/deny\` (add \`/remember\` to persist for all **${serverName}** tools)`);
+  } else {
+    lines.push('Reply `/approve` or `/deny` (add `/remember` to persist)');
+  }
   lines.push('React with 👍 to approve or 👎 to deny');
 
   return lines.join('\n');

@@ -317,8 +317,8 @@ async function handleSessionEvent(
       await streaming.finalizeStream(streamKey);
       activeStreams.delete(channelId);
     }
-    const { toolName, input, commands } = event.data;
-    const formatted = formatPermissionRequest(toolName, input, commands);
+    const { toolName, serverName, input, commands } = event.data;
+    const formatted = formatPermissionRequest(toolName, input, commands, serverName);
     await adapter.sendMessage(channelId, formatted);
     return;
   }
