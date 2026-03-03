@@ -331,14 +331,14 @@ async function handleSessionEvent(
       break;
 
     case 'tool_start':
-    case 'tool_complete':
       if (verbose && formatted.content) {
-        if (streamKey) {
-          streaming.appendDelta(streamKey, `\n\n${formatted.content}\n\n`);
-        } else {
-          adapter.sendMessage(channelId, formatted.content).catch(console.error);
-        }
+        // Send tool calls as separate messages, not in the stream
+        adapter.sendMessage(channelId, formatted.content).catch(console.error);
       }
+      break;
+
+    case 'tool_complete':
+      // Tool complete is low-value noise — skip it even in verbose
       break;
 
     case 'error':

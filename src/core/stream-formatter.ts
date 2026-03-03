@@ -12,18 +12,9 @@ export function formatEvent(event: any): FormattedEvent | null {
         verbose: false,
       };
 
+    // streaming_delta is a duplicate of message_delta — ignore it
     case 'assistant.streaming_delta':
-      // streaming_delta is the token-level event; only use if it has content
-      // that message_delta doesn't provide (some SDK versions only send one)
-      {
-        const c = event.data?.deltaContent ?? event.deltaContent ?? event.data?.content ?? '';
-        if (c) console.log(`[debug] streaming_delta content: "${c.slice(0, 50)}"`);
-        return {
-          type: 'content',
-          content: c,
-          verbose: false,
-        };
-      }
+      return null;
 
     case 'assistant.message':
       return {
@@ -33,8 +24,8 @@ export function formatEvent(event: any): FormattedEvent | null {
       };
 
     case 'tool.execution_start': {
-      const toolName = event.data?.toolName ?? 'unknown';
-      const desc = event.data?.arguments?.description ?? '';
+      const toolName = event.data?.toolName ?? event.data?.name ?? 'unknown';
+      const desc = event.data?.arguments?.description ?? event.data?.intention ?? '';
       const summary = desc ? `**${toolName}**: ${desc}` : `**${toolName}**`;
       return {
         type: 'tool_start',
@@ -44,10 +35,10 @@ export function formatEvent(event: any): FormattedEvent | null {
     }
 
     case 'tool.execution_complete': {
-      const toolCallId = event.data?.toolCallId ?? '';
+      const toolName = event.data?.toolName ?? event.data?.name ?? 'unknown';
       return {
         type: 'tool_complete',
-        content: `✅ Tool completed`,
+        content: `✅ **${toolName}** completed`,
         verbose: true,
       };
     }
