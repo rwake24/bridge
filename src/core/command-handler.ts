@@ -2,12 +2,58 @@ import { setChannelPrefs, getChannelPrefs } from '../state/store.js';
 
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh']);
 
+export interface ModelInfo {
+  id: string;
+  name: string;
+  supportedReasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+}
+
 export interface CommandResult {
   handled: boolean;
   response?: string;
   action?: 'new_session' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
            'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'set_reasoning';
   payload?: any;
+}
+
+/**
+ * Fuzzy-match user input to a model from the available list.
+ * Matches against id and name (case-insensitive). Returns:
+ * - exact match on id or name
+ * - single substring/fuzzy match
+ * - null if ambiguous or no match (with candidates list)
+ */
+export function resolveModel(input: string, models: ModelInfo[]): { model: ModelInfo } | { error: string } {
+  const lower = input.toLowerCase().trim();
+  if (!lower) return { error: '⚠️ Please specify a model name.' };
+
+  // Exact match on id or name
+  const exact = models.find(m => m.id.toLowerCase() === lower || m.name.toLowerCase() === lower);
+  if (exact) return { model: exact };
+
+  // Substring match: input appears in id or name
+  const substringMatches = models.filter(m =>
+    m.id.toLowerCase().includes(lower) || m.name.toLowerCase().includes(lower)
+  );
+  if (substringMatches.length === 1) return { model: substringMatches[0] };
+
+  // Token match: all words in input appear in id or name
+  const tokens = lower.split(/[\s\-_.]+/).filter(Boolean);
+  const tokenMatches = models.filter(m => {
+    const haystack = `${m.id} ${m.name}`.toLowerCase();
+    return tokens.every(t => haystack.includes(t));
+  });
+  if (tokenMatches.length === 1) return { model: tokenMatches[0] };
+
+  // Ambiguous or no match
+  const candidates = (substringMatches.length > 0 ? substringMatches : tokenMatches).slice(0, 5);
+  if (candidates.length > 1) {
+    const list = candidates.map(m => `\`${m.id}\` (${m.name})`).join('\n• ');
+    return { error: `⚠️ Ambiguous model "${input}". Did you mean:\n• ${list}` };
+  }
+
+  return { error: `⚠️ Unknown model "${input}". Use \`/models\` to see available models.` };
 }
 
 export function parseCommand(text: string): { command: string; args: string } | null {
@@ -21,9 +67,14 @@ export function parseCommand(text: string): { command: string; args: string } | 
   };
 }
 
-export function handleCommand(channelId: string, text: string, sessionInfo?: { sessionId: string; model: string; agent: string | null }, effectivePrefs?: { verbose: boolean; permissionMode: string; reasoningEffort?: string | null }, channelMeta?: { workingDirectory?: string; bot?: string }, modelInfo?: { supportedReasoningEfforts?: string[]; defaultReasoningEffort?: string } | null): CommandResult {
+export function handleCommand(channelId: string, text: string, sessionInfo?: { sessionId: string; model: string; agent: string | null }, effectivePrefs?: { verbose: boolean; permissionMode: string; reasoningEffort?: string | null }, channelMeta?: { workingDirectory?: string; bot?: string }, models?: ModelInfo[]): CommandResult {
   const parsed = parseCommand(text);
   if (!parsed) return { handled: false };
+
+  // Resolve current model's info from models list
+  const currentModelInfo = models && sessionInfo
+    ? models.find(m => m.id === sessionInfo.model) ?? null
+    : null;
 
   switch (parsed.command) {
     case 'new':
@@ -33,7 +84,28 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       if (!parsed.args) {
         return { handled: true, response: '⚠️ Usage: `/model <model-name>`\nExample: `/model claude-sonnet-4.6`' };
       }
-      return { handled: true, action: 'switch_model', payload: parsed.args, response: `🔄 Switching model to **${parsed.args}**...` };
+      if (!models || models.length === 0) {
+        // No model list available — pass through raw (best effort)
+        return { handled: true, action: 'switch_model', payload: parsed.args, response: `🔄 Switching model to **${parsed.args}**...` };
+      }
+      const result = resolveModel(parsed.args, models);
+      if ('error' in result) {
+        return { handled: true, response: result.error };
+      }
+      return { handled: true, action: 'switch_model', payload: result.model.id, response: `🔄 Switching model to **${result.model.name}** (\`${result.model.id}\`)...` };
+    }
+
+    case 'models': {
+      if (!models || models.length === 0) {
+        return { handled: true, response: '⚠️ Model list not available.' };
+      }
+      const lines = ['**Available Models**', ''];
+      for (const m of models) {
+        const current = sessionInfo?.model === m.id ? ' ← current' : '';
+        const reasoning = m.supportedReasoningEfforts?.length ? ` 🧠` : '';
+        lines.push(`• \`${m.id}\` — ${m.name}${reasoning}${current}`);
+      }
+      return { handled: true, response: lines.join('\n') };
     }
 
     case 'agent': {
@@ -66,7 +138,7 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       if (!VALID_REASONING_EFFORTS.has(level)) {
         return { handled: true, response: `⚠️ Invalid reasoning effort. Valid values: \`low\`, \`medium\`, \`high\`, \`xhigh\`` };
       }
-      if (modelInfo && modelInfo.supportedReasoningEfforts && !modelInfo.supportedReasoningEfforts.includes(level)) {
+      if (currentModelInfo && currentModelInfo.supportedReasoningEfforts && !currentModelInfo.supportedReasoningEfforts.includes(level)) {
         return { handled: true, response: `⚠️ Model **${sessionInfo?.model ?? 'unknown'}** does not support reasoning effort.\nSupported models include Opus and other reasoning-capable models.` };
       }
       setChannelPrefs(channelId, { reasoningEffort: level });
@@ -94,9 +166,9 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
         `• Permission mode: ${(effectivePrefs?.permissionMode ?? prefs?.permissionMode) === 'autopilot' ? '🤖 Autopilot' : '🛡️ Interactive'}`,
       ];
       // Only show reasoning effort for models that support it
-      if (modelInfo?.supportedReasoningEfforts && modelInfo.supportedReasoningEfforts.length > 0) {
-        const current = effectivePrefs?.reasoningEffort ?? modelInfo.defaultReasoningEffort ?? 'default';
-        lines.push(`• Reasoning effort: 🧠 **${current}** (supports: ${modelInfo.supportedReasoningEfforts.join(', ')})`);
+      if (currentModelInfo?.supportedReasoningEfforts && currentModelInfo.supportedReasoningEfforts.length > 0) {
+        const current = effectivePrefs?.reasoningEffort ?? currentModelInfo.defaultReasoningEffort ?? 'default';
+        lines.push(`• Reasoning effort: 🧠 **${current}** (supports: ${currentModelInfo.supportedReasoningEfforts.join(', ')})`);
       }
       return { handled: true, response: lines.join('\n') };
     }
@@ -130,7 +202,8 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
         response: [
           '**Available Commands**',
           '`/new` — Start a new session',
-          '`/model <name>` — Switch AI model',
+          '`/model <name>` — Switch AI model (fuzzy match supported)',
+          '`/models` — List available models',
           '`/agent <name>` — Switch custom agent (empty to deselect)',
           '`/reasoning <level>` — Set reasoning effort (low/medium/high/xhigh)',
           '`/verbose` — Toggle tool call visibility',

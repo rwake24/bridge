@@ -153,18 +153,22 @@ async function handleInboundMessage(
   const sessionInfo = sessionManager.getSessionInfo(msg.channelId);
   const effPrefs = sessionManager.getEffectivePrefs(msg.channelId);
 
-  // Fetch model info for commands that need it (status, reasoning)
+  // Fetch models list for commands that need it (model, models, status, reasoning)
   const parsed = parseCommand(text);
-  let modelInfo: any = null;
-  if (parsed && (parsed.command === 'status' || parsed.command === 'reasoning') && sessionInfo) {
-    modelInfo = await sessionManager.getModelInfo(sessionInfo.model);
+  let models: any[] | undefined;
+  if (parsed && ['model', 'models', 'status', 'reasoning'].includes(parsed.command)) {
+    try {
+      models = await sessionManager.listModels();
+    } catch {
+      models = undefined;
+    }
   }
 
   const cmdResult = handleCommand(
     msg.channelId, text, sessionInfo ?? undefined,
     { verbose: effPrefs.verbose, permissionMode: effPrefs.permissionMode, reasoningEffort: effPrefs.reasoningEffort },
     { workingDirectory: channelConfig.workingDirectory, bot: channelConfig.bot },
-    modelInfo,
+    models,
   );
 
   if (cmdResult.handled) {

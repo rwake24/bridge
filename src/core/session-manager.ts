@@ -291,6 +291,11 @@ export class SessionManager {
     }
   }
 
+  /** List all available models. */
+  async listModels(): Promise<any[]> {
+    return this.bridge.listModels();
+  }
+
   /** Resolve a pending permission request (first in queue). */
   resolvePermission(channelId: string, allow: boolean, remember?: boolean): boolean {
     const queue = this.pendingPermissions.get(channelId);
