@@ -479,8 +479,14 @@ export class SessionManager {
     // For MCP tools, check server-level rules first (covers all tools on that server)
     if (kind === 'mcp' && serverName) {
       const serverResult = checkPermission(channelId, `mcp:${serverName}`, '*');
-      if (serverResult === 'allow') return Promise.resolve({ kind: 'approved' });
-      if (serverResult === 'deny') return Promise.resolve({ kind: 'denied-by-rules' });
+      if (serverResult === 'allow') {
+        log.debug(`MCP "${serverName}" auto-approved by stored rule`);
+        return Promise.resolve({ kind: 'approved' });
+      }
+      if (serverResult === 'deny') {
+        log.debug(`MCP "${serverName}" denied by stored rule`);
+        return Promise.resolve({ kind: 'denied-by-rules' });
+      }
     }
 
     if (commands.length > 0) {

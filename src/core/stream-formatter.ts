@@ -65,6 +65,34 @@ export function formatEvent(event: any): FormattedEvent | null {
         verbose: false, // must always process — triggers stream finalization
       };
 
+    case 'subagent.started': {
+      const name = event.data?.agentDisplayName ?? event.data?.agentName ?? 'sub-agent';
+      return {
+        type: 'status',
+        content: `🚀 Delegated to **${name}**`,
+        verbose: false,
+      };
+    }
+
+    case 'subagent.completed': {
+      const name = event.data?.agentDisplayName ?? event.data?.agentName ?? 'sub-agent';
+      return {
+        type: 'status',
+        content: `✅ **${name}** finished`,
+        verbose: false,
+      };
+    }
+
+    case 'subagent.failed': {
+      const name = event.data?.agentDisplayName ?? event.data?.agentName ?? 'sub-agent';
+      const err = event.data?.error ?? 'unknown error';
+      return {
+        type: 'error',
+        content: `❌ **${name}** failed: ${err}`,
+        verbose: false,
+      };
+    }
+
     default:
       return null;
   }

@@ -396,6 +396,15 @@ async function handleSessionEvent(
       break;
 
     case 'status':
+      // Send subagent status messages to chat
+      if (formatted.content) {
+        if (streamKey) {
+          await streaming.finalizeStream(streamKey);
+          activeStreams.delete(channelId);
+        }
+        await adapter.sendMessage(channelId, formatted.content);
+      }
+      // Finalize stream on turn end
       if (event.type === 'assistant.turn_end' || event.type === 'session.idle') {
         if (streamKey) {
           log.info(`Turn ended, finalizing stream for ${channelId.slice(0, 8)}...`);
