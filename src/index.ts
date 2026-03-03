@@ -258,10 +258,10 @@ async function handleReaction(
 
 // --- Session Event Handling ---
 
-function handleSessionEvent(
+async function handleSessionEvent(
   channelId: string,
   event: any,
-): void {
+): Promise<void> {
   console.log(`[bridge] Session event: ${event.type} for channel ${channelId}`);
   const resolved = getAdapterForChannel(channelId);
   if (!resolved) return;
@@ -273,6 +273,12 @@ function handleSessionEvent(
 
   // Handle custom bridge events (permissions, user input)
   if (event.type === 'bridge.permission_request') {
+    // Flush the current stream so the user sees the model's message before the permission prompt
+    const streamKey = activeStreams.get(channelId);
+    if (streamKey) {
+      streaming.finalizeStream(streamKey).catch(console.error);
+      activeStreams.delete(channelId);
+    }
     const { toolName, input, commands } = event.data;
     const formatted = formatPermissionRequest(toolName, input, commands);
     adapter.sendMessage(channelId, formatted).catch(console.error);
@@ -280,6 +286,11 @@ function handleSessionEvent(
   }
 
   if (event.type === 'bridge.user_input_request') {
+    const streamKey = activeStreams.get(channelId);
+    if (streamKey) {
+      streaming.finalizeStream(streamKey).catch(console.error);
+      activeStreams.delete(channelId);
+    }
     const { question, choices } = event.data;
     const formatted = formatUserInputRequest(question, choices);
     adapter.sendMessage(channelId, formatted).catch(console.error);
@@ -296,14 +307,24 @@ function handleSessionEvent(
 
   switch (formatted.type) {
     case 'content':
-      if (streamKey) {
+      if (!streamKey) {
+        // Auto-start a new stream (e.g., after permission resolution)
+        const channelCfg = getChannelConfig(channelId);
+        const newKey = await streaming.startStream(channelId, channelCfg.threadedReplies ? undefined : undefined);
+        activeStreams.set(channelId, newKey);
+        if (event.type === 'assistant.message_delta') {
+          streaming.appendDelta(newKey, formatted.content);
+        } else if (event.type === 'assistant.message') {
+          streaming.replaceContent(newKey, formatted.content);
+        }
+      } else {
         if (event.type === 'assistant.message_delta') {
           streaming.appendDelta(streamKey, formatted.content);
         } else if (event.type === 'assistant.message') {
           streaming.replaceContent(streamKey, formatted.content);
         }
-        adapter.setTyping(channelId).catch(() => {});
       }
+      adapter.setTyping(channelId).catch(() => {});
       break;
 
     case 'tool_start':
