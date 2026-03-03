@@ -233,9 +233,12 @@ export class SessionManager {
     const config = getChannelConfig(channelId);
     const prefs = this.getEffectivePrefs(channelId);
 
+    const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
+
     const session = await this.bridge.createSession({
       model: prefs.model,
       workingDirectory: config.workingDirectory,
+      configDir: defaultConfigDir,
       onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
       onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
     });

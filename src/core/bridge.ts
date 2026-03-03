@@ -60,6 +60,7 @@ export class CopilotBridge {
   async createSession(opts: {
     model?: string;
     workingDirectory?: string;
+    configDir?: string;
     onPermissionRequest: PermissionHandler;
     onUserInputRequest?: UserInputHandler;
     systemMessage?: SystemMessageConfig;
@@ -70,6 +71,7 @@ export class CopilotBridge {
       clientName: 'copilot-bridge',
       model: opts.model,
       workingDirectory: opts.workingDirectory,
+      configDir: opts.configDir,
       onPermissionRequest: opts.onPermissionRequest,
       onUserInputRequest: opts.onUserInputRequest,
       streaming: true,
@@ -87,6 +89,7 @@ export class CopilotBridge {
       onUserInputRequest?: UserInputHandler;
       systemMessage?: SystemMessageConfig;
       customAgents?: CustomAgentConfig[];
+      configDir?: string;
     },
   ): Promise<CopilotSession> {
     await this.start();
@@ -100,6 +103,7 @@ export class CopilotBridge {
       streaming: true,
       systemMessage: opts?.systemMessage,
       customAgents: opts?.customAgents,
+      configDir: opts?.configDir,
     });
     this.sessions.set(session.sessionId, session);
     return session;
