@@ -2,9 +2,16 @@ import { Client4, WebSocketClient } from '@mattermost/client';
 import * as WebSocket from 'ws';
 import type { ChannelAdapter, InboundMessage, InboundReaction, SendOpts } from '../../types.js';
 
-// Node.js needs this for @mattermost/client WebSocket support
+// Node.js polyfills for @mattermost/client (expects browser globals)
 if (!globalThis.WebSocket) {
   (globalThis as any).WebSocket = WebSocket;
+}
+if (typeof window === 'undefined') {
+  (globalThis as any).window = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    navigator: { userAgent: 'copilot-bridge/0.1.0 (Node.js)' },
+  };
 }
 
 export class MattermostAdapter implements ChannelAdapter {

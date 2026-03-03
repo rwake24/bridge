@@ -2,16 +2,33 @@
   "platforms": {
     "mattermost": {
       "url": "https://chat.example.com",
-      "botToken": "YOUR_BOT_TOKEN_HERE"
+      "botToken": "SINGLE_BOT_TOKEN",
+      "_comment_bots": "OR use 'bots' for multiple identities:",
+      "bots": {
+        "copilot": { "token": "BOT_TOKEN_1" },
+        "bob": { "token": "BOT_TOKEN_2", "agent": "bob-agent" }
+      }
     }
   },
   "channels": [
     {
       "id": "channel-id-from-mattermost",
       "platform": "mattermost",
+      "bot": "copilot",
       "name": "My Project",
       "workingDirectory": "/path/to/project",
       "agent": null,
+      "model": "claude-sonnet-4.6",
+      "triggerMode": "mention",
+      "threadedReplies": true,
+      "verbose": false
+    },
+    {
+      "id": "another-channel-id",
+      "platform": "mattermost",
+      "bot": "bob",
+      "name": "Bob's Channel",
+      "workingDirectory": "/path/to/other-project",
       "model": "claude-sonnet-4.6",
       "triggerMode": "mention",
       "threadedReplies": true,

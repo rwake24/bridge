@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, isConfiguredChannel, getChannelConfig } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, getChannelConfig, getPlatformBots, getChannelBotName } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
@@ -13,6 +13,20 @@ const activeStreams = new Map<string, string>(); // channelId → streamKey
 
 // Per-channel promise chain to serialize message handling
 const channelLocks = new Map<string, Promise<void>>();
+
+// Bot adapters keyed by "platform:botName" for channel→adapter lookup
+const botAdapters = new Map<string, ChannelAdapter>();
+const botStreamers = new Map<string, StreamingHandler>();
+
+function getAdapterForChannel(channelId: string): { adapter: ChannelAdapter; streaming: StreamingHandler } | null {
+  const channelConfig = getChannelConfig(channelId);
+  const botName = getChannelBotName(channelId);
+  const key = `${channelConfig.platform}:${botName}`;
+  const adapter = botAdapters.get(key);
+  const streaming = botStreamers.get(key);
+  if (!adapter || !streaming) return null;
+  return { adapter, streaming };
+}
 
 async function main(): Promise<void> {
   console.log('🌉 copilot-bridge starting...');
@@ -29,40 +43,41 @@ async function main(): Promise<void> {
   // Initialize session manager
   const sessionManager = new SessionManager(bridge);
 
-  // Initialize channel adapters
-  const adapters = new Map<string, ChannelAdapter>();
-  const streamingHandlers = new Map<string, StreamingHandler>();
-
+  // Initialize channel adapters — one per bot identity
   for (const [platformName, platformConfig] of Object.entries(config.platforms)) {
     if (platformName === 'mattermost') {
-      const adapter = new MattermostAdapter(platformName, platformConfig.url, platformConfig.botToken);
-      adapters.set(platformName, adapter);
-
-      const streaming = new StreamingHandler(adapter);
-      streamingHandlers.set(platformName, streaming);
+      const bots = getPlatformBots(platformName);
+      for (const [botName, botInfo] of bots) {
+        const key = `${platformName}:${botName}`;
+        const adapter = new MattermostAdapter(platformName, platformConfig.url, botInfo.token);
+        botAdapters.set(key, adapter);
+        botStreamers.set(key, new StreamingHandler(adapter));
+        console.log(`  Registered bot "${botName}" for ${platformName}`);
+      }
     }
-    // Future: else if (platformName === 'slack') { ... }
   }
 
   // Wire up session events → streaming output
   sessionManager.onSessionEvent((sessionId, channelId, event) => {
-    handleSessionEvent(channelId, event, adapters, streamingHandlers);
+    handleSessionEvent(channelId, event);
   });
 
-  // Connect adapters and wire up message handlers
-  for (const [platformName, adapter] of adapters) {
+  // Connect all bot adapters and wire up handlers
+  for (const [key, adapter] of botAdapters) {
+    const streaming = botStreamers.get(key)!;
+
     adapter.onMessage((msg) => {
       const prev = channelLocks.get(msg.channelId) ?? Promise.resolve();
       const next = prev.then(() =>
-        handleInboundMessage(msg, sessionManager, adapter, streamingHandlers.get(platformName)!)
+        handleInboundMessage(msg, sessionManager)
           .catch(err => console.error(`[bridge] Unhandled error in message handler:`, err))
       );
       channelLocks.set(msg.channelId, next);
     });
-    adapter.onReaction((reaction) => handleReaction(reaction, sessionManager, adapter));
+    adapter.onReaction((reaction) => handleReaction(reaction, sessionManager));
 
     await adapter.connect();
-    console.log(`  ✅ ${platformName} connected`);
+    console.log(`  ✅ ${key} connected`);
   }
 
   console.log('🌉 copilot-bridge ready!\n');
@@ -71,10 +86,10 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     console.log('\n🌉 Shutting down...');
     await sessionManager.shutdown();
-    for (const [, adapter] of adapters) {
+    for (const [, adapter] of botAdapters) {
       await adapter.disconnect();
     }
-    for (const [, streaming] of streamingHandlers) {
+    for (const [, streaming] of botStreamers) {
       await streaming.cleanup();
     }
     await bridge.stop();
@@ -92,11 +107,13 @@ async function main(): Promise<void> {
 async function handleInboundMessage(
   msg: InboundMessage,
   sessionManager: SessionManager,
-  adapter: ChannelAdapter,
-  streaming: StreamingHandler,
 ): Promise<void> {
   // Only handle configured channels
   if (!isConfiguredChannel(msg.channelId)) return;
+
+  const resolved = getAdapterForChannel(msg.channelId);
+  if (!resolved) return;
+  const { adapter, streaming } = resolved;
 
   const channelConfig = getChannelConfig(msg.channelId);
   const prefs = getChannelPrefs(msg.channelId);
@@ -106,12 +123,10 @@ async function handleInboundMessage(
   if (triggerMode === 'mention' && !msg.mentionsBot && !msg.isDM) return;
 
   // Strip bot mention from message text
-  const botUserId = adapter.getBotUserId();
   let text = msg.text;
-  // Remove @mention patterns
   text = text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
     // Only remove the bot's mention, keep others
-    if (channelConfig.botIdentity && match === channelConfig.botIdentity) return '';
+    if (channelConfig.bot && match === `@${channelConfig.bot}`) return '';
     return match;
   }).trim();
 
@@ -123,18 +138,14 @@ async function handleInboundMessage(
   const cmdResult = handleCommand(msg.channelId, text, sessionInfo ?? undefined, { verbose: effPrefs.verbose, permissionMode: effPrefs.permissionMode });
 
   if (cmdResult.handled) {
-    // Determine thread root for reply
     const threadRoot = channelConfig.threadedReplies ? (msg.threadRootId ?? msg.postId) : undefined;
 
-    // Send command response
     if (cmdResult.response) {
       await adapter.sendMessage(msg.channelId, cmdResult.response, { threadRootId: threadRoot });
     }
 
-    // Execute command actions
     switch (cmdResult.action) {
-      case 'new_session':
-        // Clean up any active stream first
+      case 'new_session': {
         const oldStreamKey = activeStreams.get(msg.channelId);
         if (oldStreamKey) {
           await streaming.cancelStream(oldStreamKey);
@@ -143,6 +154,7 @@ async function handleInboundMessage(
         await sessionManager.newSession(msg.channelId);
         await adapter.sendMessage(msg.channelId, '✅ New session created.', { threadRootId: threadRoot });
         break;
+      }
       case 'switch_model':
         await sessionManager.switchModel(msg.channelId, cmdResult.payload);
         break;
@@ -160,20 +172,19 @@ async function handleInboundMessage(
         }
         break;
       case 'remember':
-        // Remember the last permission decision
         sessionManager.resolvePermission(msg.channelId, true, true);
         break;
     }
     return;
   }
 
-  // Check for pending user input — if there's one, treat this message as the answer
+  // Pending user input
   if (sessionManager.hasPendingUserInput(msg.channelId)) {
     sessionManager.resolveUserInput(msg.channelId, text);
     return;
   }
 
-  // Check for pending permission — user might reply with "yes"/"no" naturally
+  // Pending permission — natural language responses
   if (sessionManager.hasPendingPermission(msg.channelId)) {
     const lower = text.toLowerCase();
     if (lower === 'yes' || lower === 'y' || lower === 'approve') {
@@ -188,22 +199,18 @@ async function handleInboundMessage(
 
   // Regular message — forward to Copilot session
   try {
-    // Set typing indicator
     adapter.setTyping(msg.channelId).catch(() => {});
 
-    // Finalize any in-flight stream before starting a new one
     const existingStreamKey = activeStreams.get(msg.channelId);
     if (existingStreamKey) {
       await streaming.finalizeStream(existingStreamKey);
       activeStreams.delete(msg.channelId);
     }
 
-    // Start streaming response
     const threadRoot = channelConfig.threadedReplies ? (msg.threadRootId ?? msg.postId) : undefined;
     const streamKey = await streaming.startStream(msg.channelId, threadRoot);
     activeStreams.set(msg.channelId, streamKey);
 
-    // Send to Copilot (this returns immediately; responses come via events)
     await sessionManager.sendMessage(msg.channelId, text);
   } catch (err) {
     console.error(`[bridge] Error sending message for channel ${msg.channelId}:`, err);
@@ -223,12 +230,14 @@ async function handleInboundMessage(
 async function handleReaction(
   reaction: InboundReaction,
   sessionManager: SessionManager,
-  adapter: ChannelAdapter,
 ): Promise<void> {
   if (!isConfiguredChannel(reaction.channelId)) return;
   if (reaction.action !== 'added') return;
 
-  // 👍 = approve, 👎 = deny
+  const resolved = getAdapterForChannel(reaction.channelId);
+  if (!resolved) return;
+  const { adapter } = resolved;
+
   if (reaction.emoji === 'thumbsup' || reaction.emoji === '+1') {
     if (sessionManager.resolvePermission(reaction.channelId, true)) {
       await adapter.sendMessage(reaction.channelId, '✅ Approved via reaction.');
@@ -245,14 +254,12 @@ async function handleReaction(
 function handleSessionEvent(
   channelId: string,
   event: any,
-  adapters: Map<string, ChannelAdapter>,
-  streamingHandlers: Map<string, StreamingHandler>,
 ): void {
-  const channelConfig = getChannelConfig(channelId);
-  const adapter = adapters.get(channelConfig.platform);
-  const streaming = streamingHandlers.get(channelConfig.platform);
-  if (!adapter || !streaming) return;
+  const resolved = getAdapterForChannel(channelId);
+  if (!resolved) return;
+  const { adapter, streaming } = resolved;
 
+  const channelConfig = getChannelConfig(channelId);
   const prefs = getChannelPrefs(channelId);
   const verbose = prefs?.verbose ?? channelConfig.verbose;
 
@@ -275,7 +282,6 @@ function handleSessionEvent(
   const formatted = formatEvent(event);
   if (!formatted) return;
 
-  // Skip verbose-only events if not in verbose mode
   if (formatted.verbose && !verbose) return;
 
   const streamKey = activeStreams.get(channelId);
@@ -286,7 +292,6 @@ function handleSessionEvent(
         if (event.type === 'assistant.message_delta') {
           streaming.appendDelta(streamKey, formatted.content);
         } else if (event.type === 'assistant.message') {
-          // Full message replaces the stream content
           streaming.replaceContent(streamKey, formatted.content);
         }
         adapter.setTyping(channelId).catch(() => {});
@@ -296,7 +301,6 @@ function handleSessionEvent(
     case 'tool_start':
     case 'tool_complete':
       if (verbose && formatted.content) {
-        // In verbose mode, append tool info to the stream
         if (streamKey) {
           streaming.appendDelta(streamKey, `\n\n${formatted.content}\n\n`);
         } else {
@@ -315,7 +319,6 @@ function handleSessionEvent(
       break;
 
     case 'status':
-      // Handle turn end — finalize streaming
       if (event.type === 'assistant.turn_end' || event.type === 'session.idle') {
         if (streamKey) {
           streaming.finalizeStream(streamKey).catch(console.error);

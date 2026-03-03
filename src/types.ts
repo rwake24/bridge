@@ -1,8 +1,14 @@
+// Bot identity configuration
+export interface BotConfig {
+  token: string;
+  agent?: string | null; // default agent for this bot identity
+}
+
 // Platform configuration
 export interface PlatformConfig {
   url: string;
-  botToken: string;
-  botUserId?: string; // auto-detected on connect
+  botToken?: string;          // single-bot shorthand (backward compatible)
+  bots?: Record<string, BotConfig>; // multi-bot: name → config
 }
 
 // Channel configuration
@@ -11,12 +17,12 @@ export interface ChannelConfig {
   platform: string;
   name: string;
   workingDirectory: string;
+  bot?: string;               // which bot identity to use (key into platform.bots)
   agent?: string | null;
   model?: string;
   triggerMode: 'mention' | 'all';
   threadedReplies: boolean;
   verbose: boolean;
-  botIdentity?: string;
 }
 
 // Full app config
