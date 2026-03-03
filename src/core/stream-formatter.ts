@@ -8,14 +8,14 @@ export function formatEvent(event: any): FormattedEvent | null {
     case 'assistant.message_delta':
       return {
         type: 'content',
-        content: event.data?.deltaContent ?? '',
+        content: event.data?.deltaContent ?? event.deltaContent ?? '',
         verbose: false,
       };
 
     case 'assistant.message':
       return {
         type: 'content',
-        content: event.data?.content ?? '',
+        content: event.data?.content ?? event.content ?? '',
         verbose: false,
       };
 

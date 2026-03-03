@@ -48,6 +48,12 @@ export class MattermostAdapter implements ChannelAdapter {
     const host = this.url.replace(/^https?:\/\//, '');
     const wsUrl = `${wsScheme}://${host}/api/v4/websocket`;
 
+    // Register a missed-message listener so the client resets its sequence
+    // counter on reconnect (without this, act_seq/exp_seq mismatch loops)
+    this.wsClient.addMissedMessageListener(() => {
+      console.log(`[mattermost] WebSocket reconnected — missed events, resetting state`);
+    });
+
     await this.wsClient.initialize(wsUrl, this.token);
 
     this.wsClient.addMessageListener((msg: any) => {
@@ -133,6 +139,8 @@ export class MattermostAdapter implements ChannelAdapter {
         mentionsBot,
         isDM,
       };
+
+      console.log(`[mattermost] Received: "${inbound.text}" from ${inbound.username} in ${inbound.channelId} (isDM=${isDM}, mentionsBot=${mentionsBot})`);
 
       for (const handler of this.messageHandlers) {
         try {

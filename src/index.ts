@@ -109,10 +109,16 @@ async function handleInboundMessage(
   sessionManager: SessionManager,
 ): Promise<void> {
   // Only handle configured channels
-  if (!isConfiguredChannel(msg.channelId)) return;
+  if (!isConfiguredChannel(msg.channelId)) {
+    console.log(`[bridge] Ignoring unconfigured channel ${msg.channelId}`);
+    return;
+  }
 
   const resolved = getAdapterForChannel(msg.channelId);
-  if (!resolved) return;
+  if (!resolved) {
+    console.log(`[bridge] No adapter for channel ${msg.channelId}`);
+    return;
+  }
   const { adapter, streaming } = resolved;
 
   const channelConfig = getChannelConfig(msg.channelId);
@@ -199,6 +205,7 @@ async function handleInboundMessage(
 
   // Regular message — forward to Copilot session
   try {
+    console.log(`[bridge] Forwarding to Copilot: "${text}"`);
     adapter.setTyping(msg.channelId).catch(() => {});
 
     const existingStreamKey = activeStreams.get(msg.channelId);
@@ -255,6 +262,7 @@ function handleSessionEvent(
   channelId: string,
   event: any,
 ): void {
+  console.log(`[bridge] Session event: ${event.type} for channel ${channelId}`);
   const resolved = getAdapterForChannel(channelId);
   if (!resolved) return;
   const { adapter, streaming } = resolved;
