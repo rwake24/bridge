@@ -1,0 +1,151 @@
+// Platform configuration
+export interface PlatformConfig {
+  url: string;
+  botToken: string;
+  botUserId?: string; // auto-detected on connect
+}
+
+// Channel configuration
+export interface ChannelConfig {
+  id: string;
+  platform: string;
+  name: string;
+  workingDirectory: string;
+  agent?: string | null;
+  model?: string;
+  triggerMode: 'mention' | 'all';
+  threadedReplies: boolean;
+  verbose: boolean;
+  botIdentity?: string;
+}
+
+// Full app config
+export interface AppConfig {
+  platforms: Record<string, PlatformConfig>;
+  channels: ChannelConfig[];
+  defaults: {
+    model: string;
+    agent: string | null;
+    triggerMode: 'mention' | 'all';
+    threadedReplies: boolean;
+    verbose: boolean;
+    permissionMode: 'interactive' | 'autopilot';
+  };
+}
+
+// Inbound message from any platform
+export interface InboundMessage {
+  platform: string;
+  channelId: string;
+  userId: string;
+  username: string;
+  text: string;
+  postId: string;
+  threadRootId?: string;
+  mentionsBot: boolean;
+  isDM: boolean;
+  attachments?: MessageAttachment[];
+}
+
+export interface MessageAttachment {
+  type: 'image' | 'file' | 'video' | 'audio';
+  url: string;
+  name?: string;
+  mimeType?: string;
+}
+
+// Inbound reaction from any platform
+export interface InboundReaction {
+  platform: string;
+  channelId: string;
+  userId: string;
+  postId: string;
+  emoji: string;
+  action: 'added' | 'removed';
+}
+
+// Send options
+export interface SendOpts {
+  threadRootId?: string;
+}
+
+// Channel adapter interface
+export interface ChannelAdapter {
+  readonly platform: string;
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  onMessage(handler: (msg: InboundMessage) => void): void;
+  onReaction(handler: (reaction: InboundReaction) => void): void;
+  sendMessage(channelId: string, content: string, opts?: SendOpts): Promise<string>;
+  updateMessage(channelId: string, messageId: string, content: string): Promise<void>;
+  setTyping(channelId: string): Promise<void>;
+  replyInThread(channelId: string, rootId: string, content: string): Promise<string>;
+  getBotUserId(): string;
+}
+
+// Session state tracked per channel
+export interface ChannelSessionState {
+  channelId: string;
+  sessionId: string;
+  model: string;
+  agent: string | null;
+  verbose: boolean;
+  triggerMode: 'mention' | 'all';
+  threadedReplies: boolean;
+  permissionMode: 'interactive' | 'autopilot';
+  createdAt: string;
+}
+
+// Permission rule stored in SQLite
+export interface PermissionRule {
+  id?: number;
+  scope: string; // channel ID or 'global'
+  tool: string; // tool name, e.g., 'bash', 'edit', 'view'
+  commandPattern: string; // specific command, e.g., 'ls', 'grep', '*' for all
+  action: 'allow' | 'deny';
+  createdAt: string;
+}
+
+// Pending permission request surfaced to chat
+export interface PendingPermission {
+  sessionId: string;
+  channelId: string;
+  messageId?: string; // chat message ID for the permission prompt
+  toolName: string;
+  toolInput: unknown;
+  commands: string[]; // extracted individual commands
+  resolve: (result: { allow: boolean; remember?: boolean }) => void;
+  createdAt: number;
+}
+
+// Pending user input request
+export interface PendingUserInput {
+  sessionId: string;
+  channelId: string;
+  messageId?: string;
+  question: string;
+  choices?: string[];
+  allowFreeform?: boolean;
+  resolve: (answer: { answer: string; wasFreeform: boolean }) => void;
+  createdAt: number;
+}
+
+// Copilot session event types we care about
+export type CopilotEventType =
+  | 'assistant.message'
+  | 'assistant.message_delta'
+  | 'assistant.turn_start'
+  | 'assistant.turn_end'
+  | 'assistant.reasoning'
+  | 'assistant.reasoning_delta'
+  | 'tool.execution_start'
+  | 'tool.execution_complete'
+  | 'session.idle'
+  | 'session.error';
+
+// Formatted output for chat
+export interface FormattedEvent {
+  type: 'content' | 'tool_start' | 'tool_complete' | 'error' | 'status';
+  content: string;
+  verbose: boolean; // whether this should only show in verbose mode
+}

@@ -1,0 +1,27 @@
+{
+  "name": "copilot-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "^0.1.29",
+    "@mattermost/client": "^10.3.0",
+    "@mattermost/types": "^10.3.0",
+    "better-sqlite3": "^11.7.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.1"
+  }
+}

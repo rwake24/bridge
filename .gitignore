@@ -1,0 +1,8 @@
+node_modules/
+dist/
+config.json
+*.db
+*.db-journal
+.env
+.scratchpad-assets
+.playwright-cli

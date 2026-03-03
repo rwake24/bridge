@@ -1,0 +1,203 @@
+import Database from 'better-sqlite3';
+import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+
+const DB_PATH = path.join(os.homedir(), '.copilot-bridge', 'state.db');
+
+let _db: Database.Database | null = null;
+
+function getDb(): Database.Database {
+  if (_db) return _db;
+
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  _db = new Database(DB_PATH);
+  _db.pragma('journal_mode = WAL');
+  _db.pragma('foreign_keys = ON');
+
+  // Create tables
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_sessions (
+      channel_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS channel_prefs (
+      channel_id TEXT PRIMARY KEY,
+      model TEXT,
+      agent TEXT,
+      verbose INTEGER NOT NULL DEFAULT 0,
+      trigger_mode TEXT NOT NULL DEFAULT 'mention',
+      threaded_replies INTEGER NOT NULL DEFAULT 1,
+      permission_mode TEXT NOT NULL DEFAULT 'interactive',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS permission_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL DEFAULT 'global',
+      tool TEXT NOT NULL,
+      command_pattern TEXT NOT NULL DEFAULT '*',
+      action TEXT NOT NULL CHECK (action IN ('allow', 'deny')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_perm_scope ON permission_rules(scope);
+    CREATE INDEX IF NOT EXISTS idx_perm_tool ON permission_rules(tool);
+  `);
+
+  return _db;
+}
+
+// --- Channel Sessions ---
+
+export function getChannelSession(channelId: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT session_id FROM channel_sessions WHERE channel_id = ?').get(channelId) as { session_id: string } | undefined;
+  return row?.session_id ?? null;
+}
+
+export function setChannelSession(channelId: string, sessionId: string): void {
+  const db = getDb();
+  db.prepare(
+    'INSERT OR REPLACE INTO channel_sessions (channel_id, session_id, created_at) VALUES (?, ?, datetime(\'now\'))'
+  ).run(channelId, sessionId);
+}
+
+export function clearChannelSession(channelId: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM channel_sessions WHERE channel_id = ?').run(channelId);
+}
+
+// --- Channel Preferences ---
+
+export interface ChannelPrefs {
+  model?: string;
+  agent?: string | null;
+  verbose: boolean;
+  triggerMode: string;
+  threadedReplies: boolean;
+  permissionMode: string;
+}
+
+export function getChannelPrefs(channelId: string): ChannelPrefs | null {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM channel_prefs WHERE channel_id = ?').get(channelId) as any;
+  if (!row) return null;
+  return {
+    model: row.model,
+    agent: row.agent,
+    verbose: !!row.verbose,
+    triggerMode: row.trigger_mode,
+    threadedReplies: !!row.threaded_replies,
+    permissionMode: row.permission_mode,
+  };
+}
+
+export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>): void {
+  const db = getDb();
+  const existing = getChannelPrefs(channelId);
+
+  if (existing) {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (prefs.model !== undefined) { updates.push('model = ?'); values.push(prefs.model); }
+    if (prefs.agent !== undefined) { updates.push('agent = ?'); values.push(prefs.agent); }
+    if (prefs.verbose !== undefined) { updates.push('verbose = ?'); values.push(prefs.verbose ? 1 : 0); }
+    if (prefs.triggerMode !== undefined) { updates.push('trigger_mode = ?'); values.push(prefs.triggerMode); }
+    if (prefs.threadedReplies !== undefined) { updates.push('threaded_replies = ?'); values.push(prefs.threadedReplies ? 1 : 0); }
+    if (prefs.permissionMode !== undefined) { updates.push('permission_mode = ?'); values.push(prefs.permissionMode); }
+
+    if (updates.length > 0) {
+      updates.push("updated_at = datetime('now')");
+      values.push(channelId);
+      db.prepare(`UPDATE channel_prefs SET ${updates.join(', ')} WHERE channel_id = ?`).run(...values);
+    }
+  } else {
+    db.prepare(
+      `INSERT INTO channel_prefs (channel_id, model, agent, verbose, trigger_mode, threaded_replies, permission_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      channelId,
+      prefs.model ?? null,
+      prefs.agent ?? null,
+      prefs.verbose ? 1 : 0,
+      prefs.triggerMode ?? 'mention',
+      prefs.threadedReplies !== false ? 1 : 0,
+      prefs.permissionMode ?? 'interactive',
+    );
+  }
+}
+
+// --- Permission Rules ---
+
+export interface StoredPermissionRule {
+  id: number;
+  scope: string;
+  tool: string;
+  commandPattern: string;
+  action: 'allow' | 'deny';
+  createdAt: string;
+}
+
+export function getPermissionRules(scope: string, tool: string): StoredPermissionRule[] {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT * FROM permission_rules WHERE (scope = ? OR scope = \'global\') AND tool = ? ORDER BY scope DESC, id DESC'
+  ).all(scope, tool) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    scope: r.scope,
+    tool: r.tool,
+    commandPattern: r.command_pattern,
+    action: r.action,
+    createdAt: r.created_at,
+  }));
+}
+
+export function addPermissionRule(scope: string, tool: string, commandPattern: string, action: 'allow' | 'deny'): void {
+  const db = getDb();
+  // Remove existing rule for same scope+tool+pattern before inserting
+  db.prepare(
+    'DELETE FROM permission_rules WHERE scope = ? AND tool = ? AND command_pattern = ?'
+  ).run(scope, tool, commandPattern);
+
+  db.prepare(
+    'INSERT INTO permission_rules (scope, tool, command_pattern, action) VALUES (?, ?, ?, ?)'
+  ).run(scope, tool, commandPattern, action);
+}
+
+export function clearPermissionRules(scope: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM permission_rules WHERE scope = ?').run(scope);
+}
+
+/**
+ * Check if a tool+command is allowed by existing rules.
+ * Returns 'allow', 'deny', or null (no matching rule — need to ask).
+ */
+export function checkPermission(scope: string, tool: string, command: string): 'allow' | 'deny' | null {
+  const rules = getPermissionRules(scope, tool);
+
+  for (const rule of rules) {
+    // Exact match or wildcard
+    if (rule.commandPattern === '*' || rule.commandPattern === command) {
+      return rule.action;
+    }
+  }
+
+  return null;
+}
+
+// --- Cleanup ---
+
+export function closeDb(): void {
+  _db?.close();
+  _db = null;
+}
