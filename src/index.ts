@@ -262,6 +262,9 @@ async function handleSessionEvent(
   channelId: string,
   event: any,
 ): Promise<void> {
+  if (event.type === 'session.error' || event.type?.includes('error')) {
+    console.error(`[bridge] Error event:`, JSON.stringify(event).slice(0, 1000));
+  }
   console.log(`[bridge] Session event: ${event.type} for channel ${channelId}`);
   const resolved = getAdapterForChannel(channelId);
   if (!resolved) return;

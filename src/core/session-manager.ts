@@ -102,8 +102,22 @@ export class SessionManager {
     const session = this.bridge.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found after ensure`);
 
-    const messageId = await session.send({ prompt: text });
-    return messageId;
+    try {
+      const messageId = await session.send({ prompt: text });
+      return messageId;
+    } catch (err: any) {
+      const status = err?.status ?? err?.statusCode ?? err?.code;
+      console.error(`[session-manager] send failed (${status}):`, err?.message ?? err);
+      // If session is stale/broken, create a new one and retry
+      if (status === 500 || status === 404 || String(err?.message).includes('500')) {
+        console.log(`[session-manager] Stale session ${sessionId}, creating new...`);
+        const newSessionId = await this.newSession(channelId);
+        const newSession = this.bridge.getSession(newSessionId);
+        if (!newSession) throw new Error(`New session ${newSessionId} not found`);
+        return newSession.send({ prompt: text });
+      }
+      throw err;
+    }
   }
 
   /** Deny all pending permissions for a channel (e.g., when user sends a new message instead). */
