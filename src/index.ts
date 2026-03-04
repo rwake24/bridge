@@ -554,6 +554,8 @@ async function handleSessionEvent(
         }
       }
       if (!streamKey) {
+        // Suppress stream auto-start during startup nudge — avoid visible "Working..." flash
+        if (nudgePending.has(channelId)) break;
         // Auto-start stream — use actual content, never a "Working..." placeholder.
         // This happens on subsequent turns after turn_end finalized the previous stream.
         log.info(`Auto-starting stream for channel ${channelId.slice(0, 8)}...`);
@@ -573,7 +575,7 @@ async function handleSessionEvent(
       break;
     }
     case 'tool_start':
-      if (verbose && formatted.content) {
+      if (verbose && formatted.content && !nudgePending.has(channelId)) {
         await appendActivityFeed(channelId, formatted.content, adapter);
       }
       break;
@@ -684,6 +686,13 @@ async function nudgeAdminSessions(sessionManager: SessionManager): Promise<void>
 
     try {
       log.info(`Nudging admin session for bot "${botName}" on channel ${channelId.slice(0, 8)}...`);
+      // Post a visible notice directly — non-blocking, must not prevent nudge
+      const resolved = getAdapterForChannel(channelId);
+      if (resolved) {
+        resolved.adapter.sendMessage(channelId, '🔄 Gateway restarted.').catch(e =>
+          log.warn(`Failed to post restart notice on ${channelId.slice(0, 8)}...:`, e)
+        );
+      }
       nudgePending.add(channelId);
       await sessionManager.sendMessage(channelId, NUDGE_PROMPT);
     } catch (err) {
