@@ -31,9 +31,10 @@ Each configured channel maps to a Copilot session with a specific working direct
 
 1. **Prerequisites**: Node.js 20+, GitHub Copilot CLI installed and authenticated (`gh copilot --version`)
 2. **Install dependencies**: `npm install`
-3. **Configure**: Copy `config.sample.json` to `config.json` and edit:
+3. **Configure**: Copy `config.sample.json` to `~/.copilot-bridge/config.json` and edit:
    - Set your Mattermost server URL and bot token(s)
    - Map channels to working directories
+   - Config is also found in `./config.json` (cwd) or via `COPILOT_BRIDGE_CONFIG` env var
 4. **Run**: `npx tsx src/index.ts`
 
 ### Running as a Service (macOS)

@@ -1,11 +1,16 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig } from './types.js';
 
 let _config: AppConfig | null = null;
 
 export function loadConfig(configPath?: string): AppConfig {
-  const filePath = configPath ?? process.env.COPILOT_BRIDGE_CONFIG ?? path.join(process.cwd(), 'config.json');
+  const filePath = configPath
+    ?? process.env.COPILOT_BRIDGE_CONFIG
+    ?? (fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
+        ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
+        : path.join(process.cwd(), 'config.json'));
   
   if (!fs.existsSync(filePath)) {
     throw new Error(`Config file not found: ${filePath}. Copy config.sample.json to config.json and edit it.`);
