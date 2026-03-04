@@ -130,6 +130,11 @@ export class StreamingHandler {
     return this.activeStreams.get(streamKey)?.content;
   }
 
+  /** Get the thread root ID for a stream. */
+  getStreamThreadRootId(streamKey: string): string | undefined {
+    return this.activeStreams.get(streamKey)?.threadRootId;
+  }
+
   /** Delete a stream's message and clean up without posting anything. */
   async deleteStream(streamKey: string): Promise<void> {
     const stream = this.activeStreams.get(streamKey);

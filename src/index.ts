@@ -382,12 +382,13 @@ async function handleSessionEvent(
       if (verbose && streamKey) {
         const streamContent = streaming.getStreamContent(streamKey);
         if (streamContent !== undefined && streamContent === '') {
+          const threadRootId = streaming.getStreamThreadRootId(streamKey);
           await streaming.deleteStream(streamKey);
           activeStreams.delete(channelId);
           const initialContent = event.type === 'assistant.message'
             ? formatted.content
             : (formatted.content || undefined);
-          const newKey = await streaming.startStream(channelId, undefined, initialContent);
+          const newKey = await streaming.startStream(channelId, threadRootId, initialContent);
           activeStreams.set(channelId, newKey);
           adapter.setTyping(channelId).catch(() => {});
           break;
