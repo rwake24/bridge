@@ -73,3 +73,32 @@ The log *destination* depends on how you launch the bridge:
 - **launchd**: Configured via `StandardOutPath`/`StandardErrorPath` in the plist (default: `/tmp/copilot-bridge.log`)
 - **Direct**: Logs go to your terminal
 - **Redirect**: `npx tsx src/index.ts >> /var/log/copilot-bridge.log 2>&1`
+
+## Running as a macOS service
+
+> **Note**: The launchd service setup below is macOS-specific. On Linux, use systemd; see the plist as a reference for the equivalent unit file.
+
+A reference launchd plist is at `scripts/com.copilot-bridge.plist`. To install:
+
+```bash
+# Edit the plist — replace USERNAME with your macOS username
+cp scripts/com.copilot-bridge.plist ~/Library/LaunchAgents/
+# Adjust WorkingDirectory, HOME, StandardOutPath as needed
+
+# Load and start
+launchctl load ~/Library/LaunchAgents/com.copilot-bridge.plist
+
+# Restart (preferred — doesn't unload the service)
+./scripts/restart-gateway.sh
+
+# Or manually:
+launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
+
+# Stop and unload
+launchctl unload ~/Library/LaunchAgents/com.copilot-bridge.plist
+```
+
+Key plist settings:
+- **KeepAlive**: `true` — launchd restarts the process if it crashes
+- **ThrottleInterval**: `10` — wait 10s between restart attempts to avoid tight crash loops
+- **RunAtLoad**: `true` — starts automatically on login
