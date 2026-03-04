@@ -15,10 +15,24 @@ const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates');
 const log = createLogger('workspace');
 
 export const WORKSPACES_DIR = path.join(os.homedir(), '.copilot-bridge', 'workspaces');
+const USER_TEMPLATES_DIR = path.join(os.homedir(), '.copilot-bridge', 'templates');
 
 export function ensureWorkspacesDir(): void {
   if (!fs.existsSync(WORKSPACES_DIR)) {
     fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
+  }
+  // Copy distributable templates to ~/.copilot-bridge/templates/ for admin reference
+  if (fs.existsSync(TEMPLATES_DIR)) {
+    if (!fs.existsSync(USER_TEMPLATES_DIR)) {
+      fs.mkdirSync(USER_TEMPLATES_DIR, { recursive: true });
+    }
+    for (const file of fs.readdirSync(TEMPLATES_DIR)) {
+      const src = path.join(TEMPLATES_DIR, file);
+      const dest = path.join(USER_TEMPLATES_DIR, file);
+      if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
+        fs.copyFileSync(src, dest);
+      }
+    }
   }
 }
 

@@ -59,6 +59,8 @@ To add a new agent to the bridge:
    - Any specific instructions, constraints, or context
    - Files or resources it should know about
 
+   A default AGENTS.md template is available at `~/.copilot-bridge/templates/AGENTS.md` for reference. The bridge also auto-generates one when it detects a new workspace, but you should overwrite it with a customized version.
+
 5. **Optional — Map to an existing project directory**:
    If the agent should work in a real project repo instead of its default workspace, add a channel mapping in config.json:
    ```json
