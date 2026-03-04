@@ -89,6 +89,12 @@ export function clearChannelSession(channelId: string): void {
   db.prepare('DELETE FROM channel_sessions WHERE channel_id = ?').run(channelId);
 }
 
+export function getAllChannelSessions(): Array<{ channelId: string; sessionId: string }> {
+  const db = getDb();
+  const rows = db.prepare('SELECT channel_id, session_id FROM channel_sessions').all() as any[];
+  return rows.map(r => ({ channelId: r.channel_id, sessionId: r.session_id }));
+}
+
 // --- Channel Preferences ---
 
 export interface ChannelPrefs {

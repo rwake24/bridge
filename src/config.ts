@@ -269,6 +269,12 @@ export function evaluateConfigPermissions(
     }
   }
 
+  // Hard deny: 'launchctl unload' kills the bridge process before load can run.
+  // This must be before allow rules so it can't be overridden by config.
+  if (kind === 'shell' && shellCmd === 'launchctl' && command && /\bunload\b/.test(command)) {
+    return 'deny';
+  }
+
   // Check allow rules
   if (perms.allow) {
     for (const spec of perms.allow) {

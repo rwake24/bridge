@@ -69,7 +69,9 @@ To add a new agent to the bridge:
    ```bash
    launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
    ```
-   **Important**: Do NOT use `launchctl unload && launchctl load` — the unload kills this process before load can run. Use `kickstart -k` which tells launchd to restart the service externally. Your session will end when the bridge restarts; the user will need to send a new message to resume.
+   **Important**: Do NOT use `launchctl unload && launchctl load` — it is blocked by the bridge permission system. Use `kickstart -k` which tells launchd to restart the service externally.
+   
+   **Before restarting**: Check if you have any background tasks or pending work in progress. Complete or checkpoint your current work first — the restart will end your session. The bridge will nudge you on startup to resume if you were mid-task.
 
 7. **Done**: After the bridge restarts, the user just DMs the new bot in Mattermost. The bridge discovers the DM channel automatically via the Mattermost API — no further configuration needed. The bot uses its default workspace at `{{workspacesDir}}/<botname>/`.
 
@@ -102,6 +104,7 @@ Mattermost Channel → copilot-bridge → @github/copilot-sdk → Copilot CLI
 - Each channel maps to a Copilot session with a working directory, model, and optional agent
 - Multiple bot identities can run on the same platform
 - Sessions persist in SQLite and resume across restarts
+- On startup, admin sessions receive a nudge to continue mid-task work (idle sessions respond NO_REPLY which is filtered)
 - Permissions: config rules → SQLite stored rules (from /remember) → interactive prompt
 - Workspaces at `{{workspacesDir}}/<botname>/` auto-allow read+write within boundaries
 

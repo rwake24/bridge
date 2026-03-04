@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, getChannelConfig, getPlatformBots, getChannelBotName } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
@@ -6,7 +6,7 @@ import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './
 import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
-import { getChannelPrefs, closeDb } from './state/store.js';
+import { getChannelPrefs, getAllChannelSessions, closeDb } from './state/store.js';
 import { createLogger } from './logger.js';
 import type { ChannelAdapter, InboundMessage, InboundReaction } from './types.js';
 
@@ -31,6 +31,9 @@ const channelLocks = new Map<string, Promise<void>>();
 
 // Per-channel promise chain to serialize SESSION EVENT handling (prevents race on auto-start)
 const eventLocks = new Map<string, Promise<void>>();
+
+// Channels with an active startup nudge in flight (NO_REPLY filter only applies here)
+const nudgePending = new Set<string>();
 
 // Bot adapters keyed by "platform:botName" for channel→adapter lookup
 const botAdapters = new Map<string, ChannelAdapter>();
@@ -155,6 +158,11 @@ async function main(): Promise<void> {
   }
 
   log.info('copilot-bridge ready!');
+
+  // Nudge admin bot sessions that may have been mid-task before restart
+  nudgeAdminSessions(sessionManager).catch(err =>
+    log.error('Admin nudge failed:', err)
+  );
 
   // Graceful shutdown
   const shutdown = async () => {
@@ -438,6 +446,22 @@ async function handleSessionEvent(
   const formatted = formatEvent(event);
   if (!formatted) return;
 
+  // Filter out NO_REPLY responses from startup nudges only
+  if (nudgePending.has(channelId) && formatted.type === 'content' && event.type === 'assistant.message') {
+    const content = formatted.content?.trim();
+    nudgePending.delete(channelId);
+    if (content === 'NO_REPLY' || content === '`NO_REPLY`') {
+      log.info(`Filtered NO_REPLY from nudge on channel ${channelId.slice(0, 8)}...`);
+      // Clean up any active stream without posting
+      const sk = activeStreams.get(channelId);
+      if (sk) {
+        await streaming.deleteStream(sk);
+        activeStreams.delete(channelId);
+      }
+      return;
+    }
+  }
+
   if (formatted.verbose && !verbose) return;
 
   const streamKey = activeStreams.get(channelId);
@@ -578,6 +602,32 @@ async function finalizeActivityFeed(channelId: string, adapter: ChannelAdapter):
   }
 
   activityFeeds.delete(channelId);
+}
+
+// --- Admin Session Nudge ---
+
+const NUDGE_PROMPT = `The bridge service was just restarted. If you were in the middle of a task, review your conversation history and continue where you left off. If you were not mid-task, respond with exactly: NO_REPLY`;
+
+async function nudgeAdminSessions(sessionManager: SessionManager): Promise<void> {
+  const allSessions = getAllChannelSessions();
+  if (allSessions.length === 0) return;
+
+  for (const { channelId } of allSessions) {
+    // Only nudge channels belonging to admin bots
+    if (!isConfiguredChannel(channelId)) continue;
+    const channelConfig = getChannelConfig(channelId);
+    const botName = getChannelBotName(channelId);
+    if (!isBotAdmin(channelConfig.platform, botName)) continue;
+
+    try {
+      log.info(`Nudging admin session for bot "${botName}" on channel ${channelId.slice(0, 8)}...`);
+      nudgePending.add(channelId);
+      await sessionManager.sendMessage(channelId, NUDGE_PROMPT);
+    } catch (err) {
+      nudgePending.delete(channelId);
+      log.warn(`Failed to nudge admin session on channel ${channelId.slice(0, 8)}...:`, err);
+    }
+  }
 }
 
 // Start the bridge
