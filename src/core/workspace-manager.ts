@@ -36,7 +36,14 @@ export function getWorkspacePath(botName: string): string {
 
 export function getWorkspaceAllowPaths(botName: string): string[] {
   const override = getWorkspaceOverride(botName);
-  return override?.allowPaths ?? [];
+  const paths = override?.allowPaths ?? [];
+
+  // Admin bots automatically get access to the workspaces directory
+  if (isBotAdminAny(botName) && !paths.includes(WORKSPACES_DIR)) {
+    return [...paths, WORKSPACES_DIR];
+  }
+
+  return paths;
 }
 
 export function initWorkspace(botName: string): string {
