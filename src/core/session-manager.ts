@@ -19,6 +19,75 @@ const log = createLogger('session');
 
 type SessionEventHandler = (sessionId: string, channelId: string, event: any) => void;
 
+/** Simple mutex for serializing env-sensitive session creation. */
+let envLock: Promise<void> = Promise.resolve();
+
+/**
+ * Parse a .env file into a key-value map.
+ * Handles KEY=VALUE, KEY="VALUE", KEY='VALUE', comments, and blank lines.
+ */
+function parseEnvFile(filePath: string): Record<string, string> {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const vars: Record<string, string> = {};
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      let value = trimmed.slice(eqIdx + 1).trim();
+      // Strip matching quotes
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key) vars[key] = value;
+    }
+    return vars;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Run an async function with workspace env vars temporarily injected into process.env.
+ * Uses a mutex to prevent concurrent sessions from seeing each other's env vars.
+ */
+async function withWorkspaceEnv<T>(workingDirectory: string, fn: () => Promise<T>): Promise<T> {
+  const envPath = path.join(workingDirectory, '.env');
+  const vars = parseEnvFile(envPath);
+  if (Object.keys(vars).length === 0) return fn();
+
+  // Serialize access to process.env
+  const prev = envLock;
+  let release: () => void;
+  envLock = new Promise(resolve => { release = resolve; });
+
+  await prev;
+
+  // Save originals, inject workspace vars
+  const saved: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    saved[key] = process.env[key];
+    process.env[key] = value;
+  }
+
+  try {
+    return await fn();
+  } finally {
+    // Restore originals
+    for (const [key] of Object.entries(vars)) {
+      if (saved[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = saved[key];
+      }
+    }
+    release!();
+  }
+}
+
 /**
  * Load MCP server configs from ~/.copilot/mcp-config.json and installed plugins.
  * Merges them into a single Record, with user config taking precedence over plugins.
@@ -467,16 +536,18 @@ export class SessionManager {
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
 
-    const session = await this.bridge.createSession({
-      model: prefs.model,
-      workingDirectory,
-      configDir: defaultConfigDir,
-      reasoningEffort: reasoningEffort ?? undefined,
-      mcpServers: this.mcpServers,
-      skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
-      onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
-      onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
-    });
+    const session = await withWorkspaceEnv(workingDirectory, () =>
+      this.bridge.createSession({
+        model: prefs.model,
+        workingDirectory,
+        configDir: defaultConfigDir,
+        reasoningEffort: reasoningEffort ?? undefined,
+        mcpServers: this.mcpServers,
+        skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+        onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
+        onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
+      })
+    );
 
     const sessionId = session.sessionId;
     this.channelSessions.set(channelId, sessionId);
@@ -496,15 +567,17 @@ export class SessionManager {
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
 
-    const session = await this.bridge.resumeSession(sessionId, {
-      onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
-      onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
-      configDir: defaultConfigDir,
-      workingDirectory,
-      reasoningEffort: reasoningEffort ?? undefined,
-      mcpServers: this.mcpServers,
-      skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
-    });
+    const session = await withWorkspaceEnv(workingDirectory, () =>
+      this.bridge.resumeSession(sessionId, {
+        onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
+        onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
+        configDir: defaultConfigDir,
+        workingDirectory,
+        reasoningEffort: reasoningEffort ?? undefined,
+        mcpServers: this.mcpServers,
+        skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+      })
+    );
 
     this.channelSessions.set(channelId, sessionId);
     this.sessionChannels.set(sessionId, channelId);
