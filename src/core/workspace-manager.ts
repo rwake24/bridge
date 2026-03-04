@@ -22,16 +22,25 @@ export function ensureWorkspacesDir(): void {
   if (!fs.existsSync(WORKSPACES_DIR)) {
     fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
   }
-  // Copy distributable templates to ~/.copilot-bridge/templates/ for admin reference
+  // Recursively sync distributable templates to ~/.copilot-bridge/templates/
   if (fs.existsSync(TEMPLATES_DIR)) {
-    if (!fs.existsSync(USER_TEMPLATES_DIR)) {
-      fs.mkdirSync(USER_TEMPLATES_DIR, { recursive: true });
-    }
-    for (const file of fs.readdirSync(TEMPLATES_DIR)) {
-      const src = path.join(TEMPLATES_DIR, file);
-      const dest = path.join(USER_TEMPLATES_DIR, file);
-      if (!fs.existsSync(dest) || fs.statSync(src).mtimeMs > fs.statSync(dest).mtimeMs) {
-        fs.copyFileSync(src, dest);
+    syncDir(TEMPLATES_DIR, USER_TEMPLATES_DIR);
+  }
+}
+
+/** Recursively sync files from src to dest, updating only when source is newer. */
+function syncDir(src: string, dest: string): void {
+  if (!fs.existsSync(dest)) {
+    fs.mkdirSync(dest, { recursive: true });
+  }
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      syncDir(srcPath, destPath);
+    } else {
+      if (!fs.existsSync(destPath) || fs.statSync(srcPath).mtimeMs > fs.statSync(destPath).mtimeMs) {
+        fs.copyFileSync(srcPath, destPath);
       }
     }
   }
@@ -219,7 +228,7 @@ export function generateAgentsTemplate(
   agentPurpose = '',
   adminBotName: string | null = null,
 ): string {
-  const templateFile = isAdmin ? 'AGENTS.admin.md' : 'AGENTS.md';
+  const templateFile = isAdmin ? path.join('admin', 'AGENTS.md') : path.join('agents', 'AGENTS.md');
   const templatePath = path.join(TEMPLATES_DIR, templateFile);
 
   if (!fs.existsSync(templatePath)) {

@@ -300,6 +300,41 @@ export class SessionManager {
     return existingId;
   }
 
+  /** Resume a specific past session by ID. */
+  async resumeToSession(channelId: string, targetSessionId: string): Promise<string> {
+    // If already attached to this session, just reload it
+    const existingId = this.channelSessions.get(channelId);
+    if (existingId === targetSessionId) {
+      return this.reloadSession(channelId);
+    }
+
+    // Clean up current session for this channel
+    if (existingId) {
+      const unsub = this.sessionUnsubscribes.get(existingId);
+      if (unsub) { unsub(); this.sessionUnsubscribes.delete(existingId); }
+      this.bridge.releaseSession(existingId);
+      this.channelSessions.delete(channelId);
+      this.sessionChannels.delete(existingId);
+    }
+
+    // If target session is active on another channel, release it first
+    const otherChannel = this.sessionChannels.get(targetSessionId);
+    if (otherChannel) {
+      const unsub = this.sessionUnsubscribes.get(targetSessionId);
+      if (unsub) { unsub(); this.sessionUnsubscribes.delete(targetSessionId); }
+      this.bridge.releaseSession(targetSessionId);
+      this.channelSessions.delete(otherChannel);
+      this.sessionChannels.delete(targetSessionId);
+      clearChannelSession(otherChannel);
+    }
+
+    // Attach to the target session
+    await this.attachSession(channelId, targetSessionId);
+    setChannelSession(channelId, targetSessionId);
+    log.info(`Resumed session ${targetSessionId} for channel ${channelId}`);
+    return targetSessionId;
+  }
+
   /** Send a message to a channel's session. Returns immediately; responses come via events. */
   async sendMessage(channelId: string, text: string): Promise<string> {
     // Auto-deny any pending permissions so the session unblocks
@@ -511,6 +546,20 @@ export class SessionManager {
     if (!sessionId) return null;
     const prefs = this.getEffectivePrefs(channelId);
     return { sessionId, model: prefs.model, agent: prefs.agent ?? null };
+  }
+
+  /** List past sessions for this channel's working directory. */
+  async listChannelSessions(channelId: string): Promise<Array<{ sessionId: string; startTime: Date; modifiedTime: Date; summary?: string; isCurrent: boolean }>> {
+    const workingDirectory = this.resolveWorkingDirectory(channelId);
+    const sessions = await this.bridge.listSessions({ cwd: workingDirectory });
+    const currentId = this.channelSessions.get(channelId);
+    return sessions.map(s => ({
+      sessionId: s.sessionId,
+      startTime: s.startTime,
+      modifiedTime: s.modifiedTime,
+      summary: s.summary,
+      isCurrent: s.sessionId === currentId,
+    }));
   }
 
   // --- Private helpers ---

@@ -39,6 +39,18 @@ const nudgePending = new Set<string>();
 const botAdapters = new Map<string, ChannelAdapter>();
 const botStreamers = new Map<string, StreamingHandler>();
 
+/** Format a date as a relative age string (e.g., "2h ago", "3d ago"). */
+function formatAge(date: Date): string {
+  const ms = Date.now() - new Date(date).getTime();
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function getAdapterForChannel(channelId: string): { adapter: ChannelAdapter; streaming: StreamingHandler } | null {
   const channelConfig = getChannelConfig(channelId);
   const botName = getChannelBotName(channelId);
@@ -293,6 +305,45 @@ async function handleInboundMessage(
         const ackId = await adapter.sendMessage(msg.channelId, '⏳ Reloading session...', { threadRootId: threadRoot });
         const sessionId = await sessionManager.reloadSession(msg.channelId);
         await adapter.updateMessage(msg.channelId, ackId, `✅ Session reloaded (\`${sessionId.slice(0, 8)}…\`). Config and AGENTS.md re-read.`);
+        break;
+      }
+      case 'resume_session': {
+        const oldResumeStream = activeStreams.get(msg.channelId);
+        if (oldResumeStream) {
+          await streaming.cancelStream(oldResumeStream);
+          activeStreams.delete(msg.channelId);
+        }
+        await finalizeActivityFeed(msg.channelId, adapter);
+        const resumeAck = await adapter.sendMessage(msg.channelId, '⏳ Resuming session...', { threadRootId: threadRoot });
+        try {
+          const resumedId = await sessionManager.resumeToSession(msg.channelId, cmdResult.payload);
+          await adapter.updateMessage(msg.channelId, resumeAck, `✅ Resumed session \`${resumedId.slice(0, 8)}…\``);
+        } catch (err: any) {
+          await adapter.updateMessage(msg.channelId, resumeAck, `❌ Failed to resume session: ${err?.message ?? 'unknown error'}`);
+        }
+        break;
+      }
+      case 'list_sessions': {
+        try {
+          const sessions = await sessionManager.listChannelSessions(msg.channelId);
+          if (sessions.length === 0) {
+            await adapter.sendMessage(msg.channelId, '📋 No past sessions found for this workspace.', { threadRootId: threadRoot });
+          } else {
+            const lines = ['**Past Sessions** (use `/resume <id>` to reconnect)', ''];
+            for (const s of sessions.slice(0, 10)) {
+              const current = s.isCurrent ? ' ← current' : '';
+              const age = formatAge(s.modifiedTime);
+              const summary = s.summary ? ` — ${s.summary.slice(0, 60)}` : '';
+              lines.push(`• \`${s.sessionId.slice(0, 12)}\` ${age}${summary}${current}`);
+            }
+            if (sessions.length > 10) {
+              lines.push(`\n_…and ${sessions.length - 10} more_`);
+            }
+            await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
+          }
+        } catch (err: any) {
+          await adapter.sendMessage(msg.channelId, `❌ Failed to list sessions: ${err?.message ?? 'unknown error'}`, { threadRootId: threadRoot });
+        }
         break;
       }
       case 'switch_model': {

@@ -55,6 +55,7 @@ The following are **not your responsibility**. If a user asks about these, tell 
 - Managing copilot-bridge configuration, tokens, or bot accounts
 - Creating, removing, or modifying other agents
 - Restarting the bridge service
+- Reading the bridge logs
 - Changing permissions, channel mappings, or platform settings
 - Anything involving `~/.copilot-bridge/config.json` or `~/.copilot-bridge/state.db`
 
