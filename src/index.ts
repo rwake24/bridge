@@ -127,6 +127,31 @@ async function main(): Promise<void> {
 
     await adapter.connect();
     log.info(`${key} connected`);
+
+    // Discover existing DM channels and auto-register any that aren't configured
+    if (adapter instanceof MattermostAdapter) {
+      const dmChannels = await adapter.discoverDMChannels();
+      let registered = 0;
+      for (const dm of dmChannels) {
+        if (!isConfiguredChannel(dm.channelId)) {
+          const workspacePath = getWorkspacePath(botName);
+          initWorkspace(botName);
+          registerDynamicChannel({
+            id: dm.channelId,
+            platform: platformName,
+            bot: botName,
+            name: `DM (auto-discovered @${botName})`,
+            workingDirectory: workspacePath,
+            triggerMode: 'all',
+            threadedReplies: false,
+            verbose: false,
+          });
+          registered++;
+          log.info(`Auto-registered DM channel ${dm.channelId.slice(0, 8)}... for bot "${botName}"`);
+        }
+      }
+      log.info(`${botName}: discovered ${dmChannels.length} DM(s), ${registered} newly registered`);
+    }
   }
 
   log.info('copilot-bridge ready!');

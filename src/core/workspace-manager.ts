@@ -7,7 +7,7 @@ import {
   getWorkspaceOverride,
   listWorkspaceOverrides,
 } from '../state/store.js';
-import { isBotAdminAny } from '../config.js';
+import { isBotAdmin, isBotAdminAny } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates');
@@ -15,6 +15,7 @@ const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates');
 const log = createLogger('workspace');
 
 export const WORKSPACES_DIR = path.join(os.homedir(), '.copilot-bridge', 'workspaces');
+export const CONFIG_HOME = path.join(os.homedir(), '.copilot-bridge');
 const USER_TEMPLATES_DIR = path.join(os.homedir(), '.copilot-bridge', 'templates');
 
 export function ensureWorkspacesDir(): void {
@@ -52,13 +53,16 @@ export function getWorkspacePath(botName: string): string {
   return path.join(WORKSPACES_DIR, botName);
 }
 
-export function getWorkspaceAllowPaths(botName: string): string[] {
+export function getWorkspaceAllowPaths(botName: string, platformName?: string): string[] {
   const override = getWorkspaceOverride(botName);
-  const paths = override?.allowPaths ?? [];
+  let paths = override?.allowPaths ?? [];
 
-  // Admin bots automatically get access to the workspaces directory
-  if (isBotAdminAny(botName) && !paths.includes(WORKSPACES_DIR)) {
-    return [...paths, WORKSPACES_DIR];
+  // Admin bots automatically get access to the workspaces directory and config home
+  const isAdmin = platformName ? isBotAdmin(platformName, botName) : isBotAdminAny(botName);
+  if (isAdmin) {
+    if (!paths.includes(WORKSPACES_DIR)) paths = [...paths, WORKSPACES_DIR];
+    if (!paths.includes(CONFIG_HOME)) paths = [...paths, CONFIG_HOME];
+    return paths;
   }
 
   return paths;

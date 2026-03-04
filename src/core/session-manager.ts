@@ -8,7 +8,7 @@ import {
   getWorkspaceOverride,
   type ChannelPrefs,
 } from '../state/store.js';
-import { getChannelConfig, getChannelBotName, evaluateConfigPermissions } from '../config.js';
+import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { createLogger } from '../logger.js';
 import type {
@@ -515,8 +515,8 @@ export class SessionManager {
     const config = getChannelConfig(channelId);
     const botName = getChannelBotName(channelId);
     const resolvedDir = this.resolveWorkingDirectory(channelId);
-    const workspaceAllowPaths = getWorkspaceAllowPaths(botName);
-    const configResult = evaluateConfigPermissions(request as any, resolvedDir, workspaceAllowPaths);
+    const workspaceAllowPaths = getWorkspaceAllowPaths(botName, config.platform);
+    const configResult = evaluateConfigPermissions(request as any, resolvedDir, workspaceAllowPaths, isBotAdmin(config.platform, botName));
     if (configResult === 'allow') {
       return Promise.resolve({ kind: 'approved' });
     }

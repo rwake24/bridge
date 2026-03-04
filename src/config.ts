@@ -233,6 +233,7 @@ export function evaluateConfigPermissions(
   request: { kind: string; [key: string]: unknown },
   channelWorkingDirectory: string,
   workspaceAllowPaths?: string[],
+  isAdmin?: boolean,
 ): 'allow' | 'deny' | null {
   const config = getConfig();
   const perms = config.permissions;
@@ -274,6 +275,14 @@ export function evaluateConfigPermissions(
       if (matchesRule(parsed, kind, shellCmd, shellCmdFull, serverName, toolName)) {
         return 'allow';
       }
+    }
+  }
+
+  // Admin bots get additional shell commands for workspace/config management
+  if (isAdmin && kind === 'shell' && shellCmd) {
+    const adminShellAllow = ['cp', 'mkdir', 'curl', 'launchctl', 'mv', 'touch', 'chmod'];
+    if (adminShellAllow.includes(shellCmd)) {
+      return 'allow';
     }
   }
 

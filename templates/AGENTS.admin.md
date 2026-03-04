@@ -63,11 +63,11 @@ To add a new agent to the bridge:
 
 5. **Restart the bridge** (if config.json changed):
    ```bash
-   launchctl unload ~/Library/LaunchAgents/com.copilot-bridge.plist
-   launchctl load ~/Library/LaunchAgents/com.copilot-bridge.plist
+   launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
    ```
+   **Important**: Do NOT use `launchctl unload && launchctl load` — the unload kills this process before load can run. Use `kickstart -k` which tells launchd to restart the service externally. Your session will end when the bridge restarts; the user will need to send a new message to resume.
 
-6. **DM the bot**: After the bridge restarts, just send a direct message to the new bot in Mattermost. The bridge **automatically discovers DM channels** — no manual channel configuration is needed. The bot will use its default workspace at `{{workspacesDir}}/<botname>/`.
+6. **DM the bot**: After the bridge restarts, just send a direct message to the new bot in Mattermost. The bridge **automatically discovers existing DM channels at startup** via the Mattermost API — no manual channel configuration or API calls are needed. The bot will use its default workspace at `{{workspacesDir}}/<botname>/`.
 
 **Note**: You only need to manually add a `channels` entry in config.json if you want to map the bot to an existing project directory instead of its default workspace, or if you want to configure the bot for a group/team channel (non-DM).
 
