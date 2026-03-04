@@ -90,6 +90,14 @@ export function initWorkspace(botName: string): string {
     fs.writeFileSync(agentsFile, generateAgentsTemplate(botName, workspacePath, allowPaths, admin), 'utf-8');
   }
 
+  const memoryFile = path.join(workspacePath, 'MEMORY.md');
+  if (!fs.existsSync(memoryFile)) {
+    const memoryTemplate = path.join(TEMPLATES_DIR, 'agents', 'MEMORY.md');
+    if (fs.existsSync(memoryTemplate)) {
+      fs.copyFileSync(memoryTemplate, memoryFile);
+    }
+  }
+
   log.info(`Initialized workspace for "${botName}" at ${workspacePath}`);
   return workspacePath;
 }

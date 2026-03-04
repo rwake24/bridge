@@ -71,9 +71,11 @@ To add a new agent to the bridge:
 
 6. **Restart the bridge**:
    ```bash
-   launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
+   /Users/chris/dev/copilot-bridge/scripts/restart-gateway.sh
    ```
-   **Important**: Do NOT use `launchctl unload && launchctl load` — it is blocked by the bridge permission system. Use `kickstart -k` which tells launchd to restart the service externally.
+   Or manually: `launchctl kickstart -k gui/$(id -u)/com.copilot-bridge`
+   
+   **Important**: Do NOT use `launchctl unload && launchctl load` — if anything fails between unload and load, the service stays down and KeepAlive cannot restart it.
    
    **Before restarting**: Check if you have any background tasks or pending work in progress. Complete or checkpoint your current work first — the restart will end your session. The bridge will nudge you on startup to resume if you were mid-task.
 
