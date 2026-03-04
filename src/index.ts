@@ -358,15 +358,13 @@ async function handleSessionEvent(
   switch (formatted.type) {
     case 'content': {
       if (!streamKey) {
-        // Auto-start a new stream (e.g., after permission resolution or bridge restart)
+        // Auto-start stream with actual content (no extra "Working..." message)
         log.info(`Auto-starting stream for channel ${channelId.slice(0, 8)}...`);
-        const newKey = await streaming.startStream(channelId);
+        const initialContent = event.type === 'assistant.message'
+          ? formatted.content
+          : (formatted.content || undefined);
+        const newKey = await streaming.startStream(channelId, undefined, initialContent);
         activeStreams.set(channelId, newKey);
-        if (event.type === 'assistant.message') {
-          streaming.replaceContent(newKey, formatted.content);
-        } else if (formatted.content) {
-          streaming.appendDelta(newKey, formatted.content);
-        }
       } else {
         if (event.type === 'assistant.message') {
           streaming.replaceContent(streamKey, formatted.content);

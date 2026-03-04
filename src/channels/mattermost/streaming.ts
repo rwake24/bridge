@@ -22,16 +22,17 @@ export class StreamingHandler {
   }
 
   /** Start a new streaming response. Posts initial placeholder and returns stream key. */
-  async startStream(channelId: string, threadRootId?: string): Promise<string> {
+  async startStream(channelId: string, threadRootId?: string, initialContent?: string): Promise<string> {
+    const text = initialContent || '⏳ Working...';
     const messageId = await (threadRootId
-      ? this.adapter.replyInThread(channelId, threadRootId, '⏳ Working...')
-      : this.adapter.sendMessage(channelId, '⏳ Working...'));
+      ? this.adapter.replyInThread(channelId, threadRootId, text)
+      : this.adapter.sendMessage(channelId, text));
 
     const key = `${channelId}:${messageId}`;
     this.activeStreams.set(key, {
       channelId,
       messageId,
-      content: '',
+      content: initialContent ?? '',
       pendingUpdate: null,
       updateTimer: null,
       threadRootId,
