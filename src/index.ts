@@ -1,9 +1,9 @@
-import { loadConfig, getConfig, isConfiguredChannel, getChannelConfig, getPlatformBots, getChannelBotName } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, getChannelConfig, getPlatformBots, getChannelBotName } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
 import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './core/stream-formatter.js';
-import { WorkspaceWatcher, initWorkspace } from './core/workspace-manager.js';
+import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, closeDb } from './state/store.js';
@@ -111,11 +111,14 @@ async function main(): Promise<void> {
   // Connect all bot adapters and wire up handlers
   for (const [key, adapter] of botAdapters) {
     const streaming = botStreamers.get(key)!;
+    const colonIdx = key.indexOf(':');
+    const platformName = key.slice(0, colonIdx);
+    const botName = key.slice(colonIdx + 1);
 
     adapter.onMessage((msg) => {
       const prev = channelLocks.get(msg.channelId) ?? Promise.resolve();
       const next = prev.then(() =>
-        handleInboundMessage(msg, sessionManager)
+        handleInboundMessage(msg, sessionManager, platformName, botName)
           .catch(err => log.error(`Unhandled error in message handler:`, err))
       );
       channelLocks.set(msg.channelId, next);
@@ -154,7 +157,26 @@ async function main(): Promise<void> {
 async function handleInboundMessage(
   msg: InboundMessage,
   sessionManager: SessionManager,
+  platformName: string,
+  botName: string,
 ): Promise<void> {
+  // Auto-register DM channels for known bots
+  if (!isConfiguredChannel(msg.channelId) && msg.isDM) {
+    const workspacePath = getWorkspacePath(botName);
+    initWorkspace(botName);
+    registerDynamicChannel({
+      id: msg.channelId,
+      platform: platformName,
+      bot: botName,
+      name: `DM (auto-discovered @${botName})`,
+      workingDirectory: workspacePath,
+      triggerMode: 'all',
+      threadedReplies: false,
+      verbose: false,
+    });
+    log.info(`Auto-registered DM channel ${msg.channelId.slice(0, 8)}... for bot "${botName}"`);
+  }
+
   // Only handle configured channels
   if (!isConfiguredChannel(msg.channelId)) {
     log.debug(`Ignoring unconfigured channel ${msg.channelId}`);

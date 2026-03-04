@@ -109,6 +109,16 @@ export function isConfiguredChannel(channelId: string): boolean {
 }
 
 /**
+ * Dynamically register a channel at runtime (not persisted to config.json).
+ * Used for auto-discovered DM channels with bots.
+ */
+export function registerDynamicChannel(channel: ChannelConfig): void {
+  const config = getConfig();
+  if (config.channels.some(c => c.id === channel.id)) return; // already registered
+  config.channels.push(channel);
+}
+
+/**
  * Get the resolved bot token for a channel.
  * Supports both single-bot (botToken) and multi-bot (bots map) configs.
  */
