@@ -2,6 +2,9 @@
 
 Bridge GitHub Copilot CLI to messaging platforms. Send messages from Mattermost (or other platforms) and get responses from Copilot sessions running on your machine.
 
+> [!WARNING]
+> This is all experimental.
+
 ## How It Works
 
 ```
