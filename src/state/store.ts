@@ -50,6 +50,13 @@ function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_perm_scope ON permission_rules(scope);
     CREATE INDEX IF NOT EXISTS idx_perm_tool ON permission_rules(tool);
+
+    CREATE TABLE IF NOT EXISTS workspace_overrides (
+      bot_name TEXT PRIMARY KEY,
+      working_directory TEXT NOT NULL,
+      allow_paths TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Schema migrations for existing DBs
@@ -205,6 +212,63 @@ export function checkPermission(scope: string, tool: string, command: string): '
   }
 
   return null;
+}
+
+// --- Workspace Overrides ---
+
+export interface WorkspaceOverride {
+  botName: string;
+  workingDirectory: string;
+  allowPaths: string[];
+  createdAt: string;
+}
+
+function safeParseAllowPaths(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function getWorkspaceOverride(botName: string): WorkspaceOverride | null {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM workspace_overrides WHERE bot_name = ?').get(botName) as any;
+  if (!row) return null;
+  return {
+    botName: row.bot_name,
+    workingDirectory: row.working_directory,
+    allowPaths: safeParseAllowPaths(row.allow_paths),
+    createdAt: row.created_at,
+  };
+}
+
+export function setWorkspaceOverride(botName: string, workingDirectory: string, allowPaths?: string[]): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO workspace_overrides (bot_name, working_directory, allow_paths, created_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(bot_name) DO UPDATE SET
+       working_directory = excluded.working_directory,
+       allow_paths = excluded.allow_paths`
+  ).run(botName, workingDirectory, JSON.stringify(allowPaths ?? []));
+}
+
+export function removeWorkspaceOverride(botName: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM workspace_overrides WHERE bot_name = ?').run(botName);
+}
+
+export function listWorkspaceOverrides(): WorkspaceOverride[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM workspace_overrides').all() as any[];
+  return rows.map(row => ({
+    botName: row.bot_name,
+    workingDirectory: row.working_directory,
+    allowPaths: safeParseAllowPaths(row.allow_paths),
+    createdAt: row.created_at,
+  }));
 }
 
 // --- Cleanup ---

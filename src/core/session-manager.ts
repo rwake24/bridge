@@ -5,9 +5,11 @@ import { CopilotBridge } from './bridge.js';
 import {
   getChannelSession, setChannelSession, clearChannelSession,
   getChannelPrefs, setChannelPrefs, checkPermission, addPermissionRule,
+  getWorkspaceOverride,
   type ChannelPrefs,
 } from '../state/store.js';
-import { getChannelConfig, evaluateConfigPermissions } from '../config.js';
+import { getChannelConfig, getChannelBotName, evaluateConfigPermissions } from '../config.js';
+import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { createLogger } from '../logger.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
@@ -160,6 +162,7 @@ export class SessionManager {
   constructor(bridge: CopilotBridge) {
     this.bridge = bridge;
     this.mcpServers = loadMcpServers();
+    ensureWorkspacesDir();
   }
 
   /** Register a handler for session events (streaming, tool calls, etc.) */
@@ -424,18 +427,30 @@ export class SessionManager {
 
   // --- Private helpers ---
 
-  private async createNewSession(channelId: string): Promise<string> {
+  /** Resolve working directory: SQLite workspace override → channel config → default workspace path. */
+  private resolveWorkingDirectory(channelId: string): string {
+    const botName = getChannelBotName(channelId);
+    const override = getWorkspaceOverride(botName);
+    if (override) return override.workingDirectory;
+
     const config = getChannelConfig(channelId);
+    if (config.workingDirectory) return config.workingDirectory;
+
+    return getWorkspacePath(botName);
+  }
+
+  private async createNewSession(channelId: string): Promise<string> {
     const prefs = this.getEffectivePrefs(channelId);
+    const workingDirectory = this.resolveWorkingDirectory(channelId);
 
     const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
 
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
-    const skillDirectories = discoverSkillDirectories(config.workingDirectory);
+    const skillDirectories = discoverSkillDirectories(workingDirectory);
 
     const session = await this.bridge.createSession({
       model: prefs.model,
-      workingDirectory: config.workingDirectory,
+      workingDirectory,
       configDir: defaultConfigDir,
       reasoningEffort: reasoningEffort ?? undefined,
       mcpServers: this.mcpServers,
@@ -456,17 +471,17 @@ export class SessionManager {
   }
 
   private async attachSession(channelId: string, sessionId: string): Promise<void> {
-    const config = getChannelConfig(channelId);
     const prefs = this.getEffectivePrefs(channelId);
+    const workingDirectory = this.resolveWorkingDirectory(channelId);
     const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
-    const skillDirectories = discoverSkillDirectories(config.workingDirectory);
+    const skillDirectories = discoverSkillDirectories(workingDirectory);
 
     const session = await this.bridge.resumeSession(sessionId, {
       onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
       onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
       configDir: defaultConfigDir,
-      workingDirectory: config.workingDirectory,
+      workingDirectory,
       reasoningEffort: reasoningEffort ?? undefined,
       mcpServers: this.mcpServers,
       skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
@@ -498,7 +513,10 @@ export class SessionManager {
 
     // Check config-level permission rules first (CLI-compatible syntax)
     const config = getChannelConfig(channelId);
-    const configResult = evaluateConfigPermissions(request as any, config.workingDirectory);
+    const botName = getChannelBotName(channelId);
+    const resolvedDir = this.resolveWorkingDirectory(channelId);
+    const workspaceAllowPaths = getWorkspaceAllowPaths(botName);
+    const configResult = evaluateConfigPermissions(request as any, resolvedDir, workspaceAllowPaths);
     if (configResult === 'allow') {
       return Promise.resolve({ kind: 'approved' });
     }

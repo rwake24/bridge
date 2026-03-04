@@ -3,6 +3,7 @@ import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
 import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './core/stream-formatter.js';
+import { WorkspaceWatcher, initWorkspace } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, closeDb } from './state/store.js';
@@ -60,6 +61,29 @@ async function main(): Promise<void> {
   // Initialize session manager
   const sessionManager = new SessionManager(bridge);
 
+  // Initialize default workspaces for bots that don't have explicit channel mappings
+  const botsWithChannels = new Set(config.channels.map(ch => ch.bot).filter(Boolean));
+  for (const [platformName] of Object.entries(config.platforms)) {
+    const bots = getPlatformBots(platformName);
+    for (const [botName] of bots) {
+      if (!botsWithChannels.has(botName)) {
+        initWorkspace(botName);
+      }
+    }
+  }
+
+  // Watch for new workspace directories
+  const workspaceWatcher = new WorkspaceWatcher();
+  workspaceWatcher.onEvent((event) => {
+    if (event.type === 'created') {
+      initWorkspace(event.botName);
+      log.info(`Workspace ready for "${event.botName}" — channel registration will occur on first message`);
+    } else if (event.type === 'removed') {
+      log.warn(`Workspace removed for "${event.botName}" — existing sessions will continue but workspace files are gone`);
+    }
+  });
+  workspaceWatcher.start();
+
   // Initialize channel adapters — one per bot identity
   for (const [platformName, platformConfig] of Object.entries(config.platforms)) {
     if (platformName === 'mattermost') {
@@ -107,6 +131,7 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = async () => {
     log.info('Shutting down...');
+    workspaceWatcher.stop();
     await sessionManager.shutdown();
     for (const [, adapter] of botAdapters) {
       await adapter.disconnect();

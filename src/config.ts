@@ -157,6 +157,34 @@ export function getPlatformBots(platformName: string): Map<string, { token: stri
   return bots;
 }
 
+/** Check if a bot is an admin. */
+export function isBotAdmin(platformName: string, botName: string): boolean {
+  const config = getConfig();
+  const platform = config.platforms[platformName];
+  if (!platform?.bots) return false;
+  return !!(platform.bots[botName] as BotConfig)?.admin;
+}
+
+/** Check if a bot name is admin on any platform. */
+export function isBotAdminAny(botName: string): boolean {
+  const config = getConfig();
+  for (const platform of Object.values(config.platforms)) {
+    if (platform.bots && (platform.bots[botName] as BotConfig)?.admin) return true;
+  }
+  return false;
+}
+
+/** Get the admin bot name for a platform, if any. */
+export function getAdminBotName(platformName: string): string | null {
+  const config = getConfig();
+  const platform = config.platforms[platformName];
+  if (!platform?.bots) return null;
+  for (const [name, bot] of Object.entries(platform.bots)) {
+    if ((bot as BotConfig).admin) return name;
+  }
+  return null;
+}
+
 /** Get the bot name a channel uses. */
 export function getChannelBotName(channelId: string): string {
   const config = getConfig();
@@ -189,6 +217,7 @@ function parsePermissionSpec(spec: string): { kind: string; tool?: string } {
 export function evaluateConfigPermissions(
   request: { kind: string; [key: string]: unknown },
   channelWorkingDirectory: string,
+  workspaceAllowPaths?: string[],
 ): 'allow' | 'deny' | null {
   const config = getConfig();
   const perms = config.permissions;
@@ -233,14 +262,23 @@ export function evaluateConfigPermissions(
     }
   }
 
-  // Auto-allow reads within the channel's workspace directory
-  if (kind === 'read' && requestPath) {
+  // Auto-allow reads and writes within the workspace directory
+  if ((kind === 'read' || kind === 'write') && requestPath) {
     const resolved = path.resolve(requestPath);
     const workspace = path.resolve(channelWorkingDirectory);
     if (resolved.startsWith(workspace + path.sep) || resolved === workspace) {
       return 'allow';
     }
-    // Check extra allowPaths
+    // Check workspace-level allowPaths (from SQLite override)
+    if (workspaceAllowPaths) {
+      for (const p of workspaceAllowPaths) {
+        const allowed = path.resolve(p);
+        if (resolved.startsWith(allowed + path.sep) || resolved === allowed) {
+          return 'allow';
+        }
+      }
+    }
+    // Check config-level allowPaths
     if (perms.allowPaths) {
       for (const p of perms.allowPaths) {
         const allowed = path.resolve(p);
@@ -249,6 +287,12 @@ export function evaluateConfigPermissions(
         }
       }
     }
+  }
+
+  // Active deny: if a read/write has a path that wasn't auto-allowed above,
+  // it's outside the workspace boundaries — deny it rather than prompting.
+  if ((kind === 'read' || kind === 'write') && requestPath) {
+    return 'deny';
   }
 
   // Check URL permissions
