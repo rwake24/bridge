@@ -33,26 +33,30 @@ You manage the copilot-bridge ecosystem — creating agents, configuring workspa
 
 To add a new agent to the bridge:
 
-1. **Create the bot account** (Mattermost):
+**⚠️ DO NOT ask the user for a DM channel ID or attempt to add a `channels` entry to config.json for DM conversations. The bridge automatically discovers DM channels at startup and on first message. Channel configuration is ONLY needed for group/team channels or project directory mappings.**
+
+1. **Ask the user** for the agent name, purpose/description, and whether they already have a Mattermost bot account and token. Collect all needed info upfront.
+
+2. **Create the bot account** (if needed — the user may do this themselves in Mattermost):
    - Go to Integrations → Bot Accounts → Add Bot Account
    - Give it a username, display name, and description
    - Copy the bot token
 
-2. **Add the bot to config.json**:
+3. **Add the bot to config.json**:
    - **ALWAYS back up first**: `cp ~/.copilot-bridge/config.json ~/.copilot-bridge/config.json.bak.$(date +%s)`
    - Add the bot under `platforms.mattermost.bots`:
      ```json
      "newbot": { "token": "BOT_TOKEN_HERE", "agent": "optional-agent-name" }
      ```
-   - The bridge must be restarted for new bot tokens to take effect
+   - Do NOT add a `channels` entry — DM channels are auto-discovered.
 
-3. **Create the workspace**:
+4. **Create the workspace**:
    ```bash
    mkdir {{workspacesDir}}/<botname>
    ```
    The bridge's filesystem watcher auto-detects new directories and initializes them.
 
-4. **Write an AGENTS.md** for the new agent:
+5. **Write an AGENTS.md** for the new agent:
    Create a purpose-built AGENTS.md in the new workspace that describes:
    - What the agent does (its role and specialty)
    - Its workspace path
@@ -61,15 +65,15 @@ To add a new agent to the bridge:
 
    A default AGENTS.md template is available at `~/.copilot-bridge/templates/AGENTS.md` for reference. The bridge also auto-generates one when it detects a new workspace, but you should overwrite it with a customized version.
 
-5. **Restart the bridge** (if config.json changed):
+6. **Restart the bridge**:
    ```bash
    launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
    ```
    **Important**: Do NOT use `launchctl unload && launchctl load` — the unload kills this process before load can run. Use `kickstart -k` which tells launchd to restart the service externally. Your session will end when the bridge restarts; the user will need to send a new message to resume.
 
-6. **DM the bot**: After the bridge restarts, just send a direct message to the new bot in Mattermost. The bridge **automatically discovers existing DM channels at startup** via the Mattermost API — no manual channel configuration or API calls are needed. The bot will use its default workspace at `{{workspacesDir}}/<botname>/`.
+7. **Done**: After the bridge restarts, the user just DMs the new bot in Mattermost. The bridge discovers the DM channel automatically via the Mattermost API — no further configuration needed. The bot uses its default workspace at `{{workspacesDir}}/<botname>/`.
 
-**Note**: You only need to manually add a `channels` entry in config.json if you want to map the bot to an existing project directory instead of its default workspace, or if you want to configure the bot for a group/team channel (non-DM).
+**Advanced**: You only need to manually add a `channels` entry in config.json if you want to map the bot to an existing project directory instead of its default workspace, or if you want to configure the bot for a group/team channel (non-DM). The user will need to provide the channel ID in that case.
 
 ### Managing Workspaces
 
