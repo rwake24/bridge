@@ -14,6 +14,14 @@ const log = createLogger('bridge');
 // Active streaming responses, keyed by channelId
 const activeStreams = new Map<string, string>(); // channelId → streamKey
 
+// Activity feed: a single edit-in-place message accumulating tool call lines per channel
+const activityFeeds = new Map<string, {
+  messageId: string;
+  lines: string[];
+  updateTimer: ReturnType<typeof setTimeout> | null;
+}>();
+const ACTIVITY_THROTTLE_MS = 600;
+
 // Per-channel promise chain to serialize message handling
 const channelLocks = new Map<string, Promise<void>>();
 
@@ -187,6 +195,7 @@ async function handleInboundMessage(
           await streaming.cancelStream(oldStreamKey);
           activeStreams.delete(msg.channelId);
         }
+        await finalizeActivityFeed(msg.channelId, adapter);
         await sessionManager.newSession(msg.channelId);
         await adapter.sendMessage(msg.channelId, '✅ New session created.', { threadRootId: threadRoot });
         break;
@@ -329,6 +338,7 @@ async function handleSessionEvent(
       await streaming.finalizeStream(streamKey);
       activeStreams.delete(channelId);
     }
+    await finalizeActivityFeed(channelId, adapter);
     const { toolName, serverName, input, commands } = event.data;
     const formatted = formatPermissionRequest(toolName, input, commands, serverName);
     await adapter.sendMessage(channelId, formatted);
@@ -341,6 +351,7 @@ async function handleSessionEvent(
       await streaming.finalizeStream(streamKey);
       activeStreams.delete(channelId);
     }
+    await finalizeActivityFeed(channelId, adapter);
     const { question, choices } = event.data;
     const formatted = formatUserInputRequest(question, choices);
     await adapter.sendMessage(channelId, formatted);
@@ -357,6 +368,10 @@ async function handleSessionEvent(
 
   switch (formatted.type) {
     case 'content': {
+      // When response content starts, finalize the activity feed
+      if (activityFeeds.has(channelId)) {
+        await finalizeActivityFeed(channelId, adapter);
+      }
       if (!streamKey) {
         // Auto-start stream with actual content (no extra "Working..." message)
         log.info(`Auto-starting stream for channel ${channelId.slice(0, 8)}...`);
@@ -377,11 +392,12 @@ async function handleSessionEvent(
     }
     case 'tool_start':
       if (verbose && formatted.content) {
-        await adapter.sendMessage(channelId, formatted.content);
+        await appendActivityFeed(channelId, formatted.content, adapter);
       }
       break;
 
     case 'tool_complete':
+      // tool_complete events are folded into the activity feed via tool_start
       break;
 
     case 'error':
@@ -404,6 +420,8 @@ async function handleSessionEvent(
       }
       // Finalize stream on turn end
       if (event.type === 'assistant.turn_end' || event.type === 'session.idle') {
+        // Finalize the activity feed (close it out for this turn)
+        await finalizeActivityFeed(channelId, adapter);
         if (streamKey) {
           log.info(`Turn ended, finalizing stream for ${channelId.slice(0, 8)}...`);
           await streaming.finalizeStream(streamKey);
@@ -412,6 +430,57 @@ async function handleSessionEvent(
       }
       break;
   }
+}
+
+// --- Activity Feed ---
+
+/** Append a tool call line to the activity feed message for a channel. */
+async function appendActivityFeed(channelId: string, line: string, adapter: ChannelAdapter): Promise<void> {
+  let feed = activityFeeds.get(channelId);
+
+  if (!feed) {
+    // Create the activity feed message
+    const messageId = await adapter.sendMessage(channelId, line);
+    feed = { messageId, lines: [line], updateTimer: null };
+    activityFeeds.set(channelId, feed);
+    return;
+  }
+
+  feed.lines.push(line);
+
+  // Throttle updates
+  if (!feed.updateTimer) {
+    feed.updateTimer = setTimeout(async () => {
+      const f = activityFeeds.get(channelId);
+      if (!f) return;
+      f.updateTimer = null;
+      try {
+        await adapter.updateMessage(channelId, f.messageId, f.lines.join('\n'));
+      } catch (err) {
+        log.error(`Failed to update activity feed:`, err);
+      }
+    }, ACTIVITY_THROTTLE_MS);
+  }
+}
+
+/** Finalize the activity feed — flush any pending update and remove tracking. */
+async function finalizeActivityFeed(channelId: string, adapter: ChannelAdapter): Promise<void> {
+  const feed = activityFeeds.get(channelId);
+  if (!feed) return;
+
+  if (feed.updateTimer) {
+    clearTimeout(feed.updateTimer);
+    feed.updateTimer = null;
+  }
+
+  // Final update with all lines
+  try {
+    await adapter.updateMessage(channelId, feed.messageId, feed.lines.join('\n'));
+  } catch (err) {
+    log.error(`Failed to finalize activity feed:`, err);
+  }
+
+  activityFeeds.delete(channelId);
 }
 
 // Start the bridge
