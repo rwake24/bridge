@@ -801,23 +801,24 @@ export class SessionManager {
         parameters: {
           type: 'object',
           properties: {
-            path: { type: 'string', description: 'Absolute path to the file to send' },
+            path: { type: 'string', description: 'Path to the file to send (absolute or relative to workspace)' },
             message: { type: 'string', description: 'Optional message to accompany the file' },
           },
           required: ['path'],
         },
         handler: async (args: { path: string; message?: string }) => {
           try {
+            // Resolve relative paths against workspace
+            const resolved = path.isAbsolute(args.path) ? path.resolve(args.path) : path.resolve(workDir, args.path);
             // Validate the file path is within workspace or allowed paths
-            const resolved = path.resolve(args.path);
             const allowed = [workDir, ...allowPaths];
             const isAllowed = allowed.some(dir => resolved.startsWith(path.resolve(dir) + path.sep) || resolved === path.resolve(dir));
             if (!isAllowed) {
               log.warn(`send_file blocked: "${resolved}" is outside workspace for channel ${channelId.slice(0, 8)}...`);
               return { content: 'File path is outside the allowed workspace. Only files within your workspace can be sent.' };
             }
-            await handler(channelId, args.path, args.message);
-            return { content: `File sent: ${path.basename(args.path)}` };
+            await handler(channelId, resolved, args.message);
+            return { content: `File sent: ${path.basename(resolved)}` };
           } catch (err: any) {
             log.error(`send_file failed for channel ${channelId.slice(0, 8)}...:`, err);
             return { content: `Failed to send file: ${err?.message ?? 'unknown error'}` };

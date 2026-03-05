@@ -238,11 +238,13 @@ export class MattermostAdapter implements ChannelAdapter {
   async sendFile(channelId: string, filePath: string, message?: string, opts?: SendOpts): Promise<string> {
     const baseUrl = this.client.getBaseRoute();
     const fileName = path.basename(filePath);
-    const fileData = fs.readFileSync(filePath);
+
+    // Stream the file to avoid blocking the event loop for large files
+    const fileBuffer = await fs.promises.readFile(filePath);
 
     // Upload the file
     const form = new FormData();
-    form.append('files', new Blob([fileData]), fileName);
+    form.append('files', new Blob([fileBuffer]), fileName);
     form.append('channel_id', channelId);
 
     const uploadResp = await fetch(`${baseUrl}/files`, {

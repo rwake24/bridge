@@ -180,11 +180,14 @@ async function main(): Promise<void> {
     eventLocks.set(channelId, next);
   });
 
-  // Wire up send_file tool → adapter.sendFile
+  // Wire up send_file tool → adapter.sendFile (with thread context)
   sessionManager.onSendFile(async (channelId, filePath, message) => {
     const resolved = getAdapterForChannel(channelId);
     if (!resolved) throw new Error('No adapter for channel');
-    return resolved.adapter.sendFile(channelId, filePath, message);
+    // Preserve thread context if threaded replies are active
+    const streamKey = activeStreams.get(channelId);
+    const threadRootId = streamKey ? resolved.streaming.getStreamThreadRootId(streamKey) : undefined;
+    return resolved.adapter.sendFile(channelId, filePath, message, { threadRootId });
   });
 
   // Connect all bot adapters and wire up handlers
