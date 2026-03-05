@@ -7,6 +7,57 @@ const DB_PATH = path.join(os.homedir(), '.copilot-bridge', 'state.db');
 
 let _db: Database.Database | null = null;
 
+/** Migrate channel_prefs: drop NOT NULL on columns that should be nullable. */
+function migrateChannelPrefsNullable(db: Database.Database): void {
+  const cols = db.prepare("PRAGMA table_info('channel_prefs')").all() as any[];
+  const nullableTargets = new Set(['verbose', 'trigger_mode', 'threaded_replies', 'permission_mode']);
+  const needsMigration = cols.some(
+    (c: any) => nullableTargets.has(c.name) && c.notnull === 1
+  );
+  if (!needsMigration) return;
+
+  // Build dynamic column definitions preserving all existing columns
+  const columnDefs: string[] = [];
+  const selectExprs: string[] = [];
+
+  for (const c of cols) {
+    const name = c.name as string;
+    const parts: string[] = [`"${name}"`];
+    if (c.type) parts.push(c.type);
+    if (c.pk === 1) parts.push('PRIMARY KEY');
+    // Drop NOT NULL only for targeted columns; preserve for others
+    if (c.notnull === 1 && !nullableTargets.has(name)) parts.push('NOT NULL');
+    if (c.dflt_value !== null && c.dflt_value !== undefined) parts.push(`DEFAULT ${c.dflt_value}`);
+    columnDefs.push(parts.join(' '));
+
+    // Ensure updated_at is non-NULL during copy
+    if (name === 'updated_at') {
+      selectExprs.push("COALESCE(updated_at, datetime('now'))");
+    } else {
+      selectExprs.push(`"${name}"`);
+    }
+  }
+
+  // Capture existing indexes/triggers to recreate after rebuild
+  const schemaObjects = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE tbl_name = 'channel_prefs' AND type IN ('index','trigger') AND sql IS NOT NULL"
+  ).all() as any[];
+
+  const migrate = db.transaction(() => {
+    db.exec(`DROP TABLE IF EXISTS channel_prefs_new`);
+    db.exec(`CREATE TABLE channel_prefs_new (${columnDefs.join(', ')})`);
+    db.exec(`
+      INSERT INTO channel_prefs_new SELECT ${selectExprs.join(', ')} FROM channel_prefs;
+      DROP TABLE channel_prefs;
+      ALTER TABLE channel_prefs_new RENAME TO channel_prefs;
+    `);
+    for (const obj of schemaObjects) {
+      if (obj.sql) db.exec(obj.sql);
+    }
+  });
+  migrate();
+}
+
 function getDb(): Database.Database {
   if (_db) return _db;
 
@@ -57,7 +108,15 @@ function getDb(): Database.Database {
       allow_paths TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+
+  // Migration: ensure channel_prefs columns are nullable (fixes NOT NULL constraints from older schema)
+  migrateChannelPrefsNullable(_db);
 
   // Schema migrations for existing DBs
   try {
@@ -274,6 +333,22 @@ export function listWorkspaceOverrides(): WorkspaceOverride[] {
     allowPaths: safeParseAllowPaths(row.allow_paths),
     createdAt: row.created_at,
   }));
+}
+
+// --- Global Settings ---
+
+export function getGlobalSetting(key: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setGlobalSetting(key: string, value: string): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, value);
 }
 
 // --- Cleanup ---
