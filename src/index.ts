@@ -714,7 +714,7 @@ async function nudgeAdminSessions(sessionManager: SessionManager): Promise<void>
       if (channelConfig.isDM) {
         const resolved = getAdapterForChannel(channelId);
         if (resolved) {
-          resolved.adapter.sendMessage(channelId, '🔄 Gateway restarted.').catch(e =>
+          resolved.adapter.sendMessage(channelId, '🔄 Bridge restarted.').catch(e =>
             log.warn(`Failed to post restart notice on ${channelId.slice(0, 8)}...:`, e)
           );
         }
