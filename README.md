@@ -1,5 +1,7 @@
 # copilot-bridge
 
+<img src="docs/images/copilot-bridge.png" alt="Copilot Bridge" width="200" height="200">
+
 Bridge GitHub Copilot CLI to messaging platforms. Send messages from Mattermost (or other platforms) and get responses from Copilot sessions running on your machine.
 
 > [!WARNING]
