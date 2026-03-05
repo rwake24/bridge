@@ -11,6 +11,7 @@ import {
 import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { createLogger } from '../logger.js';
+import type { McpServerInfo } from './command-handler.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
 } from '../types.js';
@@ -155,12 +156,7 @@ function loadMcpServers(): Record<string, any> {
     }
   }
 
-  // Ensure all servers have a tools field (SDK requires it)
-  for (const [name, config] of Object.entries(servers)) {
-    if (!(config as any).tools) {
-      (config as any).tools = ['*'];
-    }
-  }
+  normalizeMcpServers(servers);
 
   const count = Object.keys(servers).length;
   if (count > 0) {
@@ -168,6 +164,66 @@ function loadMcpServers(): Record<string, any> {
   }
 
   return servers;
+}
+
+/** Ensure all MCP server entries have a tools field (SDK requires it). */
+function normalizeMcpServers(servers: Record<string, any>): void {
+  for (const config of Object.values(servers)) {
+    if (!config.tools) {
+      config.tools = ['*'];
+    }
+  }
+}
+
+/**
+ * Load workspace-specific MCP servers from <workspacePath>/mcp-config.json.
+ * Injects workspace .env vars into each local server's env field so the CLI
+ * subprocess passes them through to MCP server processes (the CLI subprocess
+ * is long-lived and does not inherit bridge process.env changes).
+ * Also expands ${VAR} references in env values from .env or process.env.
+ */
+function loadWorkspaceMcpServers(workspacePath: string): { servers: Record<string, any>; env: Record<string, string> } {
+  const workspaceEnv = parseEnvFile(path.join(workspacePath, '.env'));
+  const configFile = path.join(workspacePath, 'mcp-config.json');
+  if (!fs.existsSync(configFile)) return { servers: {}, env: workspaceEnv };
+
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') return { servers: {}, env: workspaceEnv };
+
+    const servers: Record<string, any> = {};
+    for (const [name, config] of Object.entries(cfg.mcpServers)) {
+      const serverConfig = config as any;
+
+      // Expand ${VAR} references in config-defined env values BEFORE merging .env
+      // (only config-authored keys get expansion; .env values are always literal)
+      const configEnv = serverConfig.env ? { ...serverConfig.env } : {};
+      for (const [key, value] of Object.entries(configEnv)) {
+        if (typeof value === 'string' && value.includes('${')) {
+          configEnv[key] = (value as string).replace(/\$\{(\w+)\}/g, (_, varName) =>
+            workspaceEnv[varName] ?? process.env[varName] ?? '',
+          );
+        }
+      }
+
+      // Inject workspace .env vars into local MCP servers
+      const isLocal = !serverConfig.type || serverConfig.type === 'local' || serverConfig.type === 'stdio';
+      if (isLocal && Object.keys(workspaceEnv).length > 0) {
+        // Workspace .env as base, expanded config env overrides
+        serverConfig.env = { ...workspaceEnv, ...configEnv };
+      } else {
+        serverConfig.env = configEnv;
+      }
+
+      servers[name] = serverConfig;
+      log.debug(`Loaded workspace MCP "${name}" from ${configFile}`);
+    }
+    normalizeMcpServers(servers);
+    return { servers, env: workspaceEnv };
+  } catch (err) {
+    log.warn(`Failed to parse workspace MCP config ${configFile}: ${err}`);
+    return { servers: {}, env: workspaceEnv };
+  }
 }
 
 /**
@@ -229,7 +285,7 @@ export class SessionManager {
   private sessionChannels = new Map<string, string>(); // sessionId → channelId (reverse)
   private sessionUnsubscribes = new Map<string, () => void>(); // sessionId → unsubscribe fn
   private eventHandler: SessionEventHandler | null = null;
-  private mcpServers: Record<string, any>;
+  private mcpServers: Record<string, any>; // global (plugin + user) MCP servers
 
   // Pending permission requests (queue per channel to avoid overwrites)
   private pendingPermissions = new Map<string, PendingPermission[]>();
@@ -245,6 +301,55 @@ export class SessionManager {
   /** Register a handler for session events (streaming, tool calls, etc.) */
   onSessionEvent(handler: SessionEventHandler): void {
     this.eventHandler = handler;
+  }
+
+  /**
+   * Resolve MCP servers for a workspace: workspace config (highest priority)
+   * merged on top of global servers (plugin + user config).
+   */
+  private resolveMcpServers(workingDirectory: string): Record<string, any> {
+    const { servers: workspaceServers, env: workspaceEnv } = loadWorkspaceMcpServers(workingDirectory);
+
+    // Clone global servers and inject workspace .env into local ones
+    const merged: Record<string, any> = {};
+    for (const [name, config] of Object.entries(this.mcpServers)) {
+      const serverConfig = { ...(config as any) };
+      const isLocal = !serverConfig.type || serverConfig.type === 'local' || serverConfig.type === 'stdio';
+      if (isLocal && Object.keys(workspaceEnv).length > 0) {
+        serverConfig.env = { ...workspaceEnv, ...(serverConfig.env || {}) };
+      }
+      merged[name] = serverConfig;
+    }
+
+    if (Object.keys(workspaceServers).length === 0) return merged;
+    return { ...merged, ...workspaceServers };
+  }
+
+  /** Get annotated MCP server info for a channel, showing which layer each server came from. */
+  getMcpServerInfo(channelId: string): McpServerInfo[] {
+    const workingDirectory = this.resolveWorkingDirectory(channelId);
+    const { servers: workspaceServers } = loadWorkspaceMcpServers(workingDirectory);
+    const globalNames = new Set(Object.keys(this.mcpServers));
+
+    const result: McpServerInfo[] = [];
+
+    // All global servers — mark workspace overrides accordingly
+    for (const name of globalNames) {
+      if (name in workspaceServers) {
+        result.push({ name, source: 'workspace (override)' });
+      } else {
+        result.push({ name, source: 'global' });
+      }
+    }
+
+    // Workspace-only servers (not in global)
+    for (const name of Object.keys(workspaceServers)) {
+      if (!globalNames.has(name)) {
+        result.push({ name, source: 'workspace' });
+      }
+    }
+
+    return result.sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** Get or create a session for a channel. */
@@ -614,7 +719,7 @@ export class SessionManager {
         workingDirectory,
         configDir: defaultConfigDir,
         reasoningEffort: reasoningEffort ?? undefined,
-        mcpServers: this.mcpServers,
+        mcpServers: this.resolveMcpServers(workingDirectory),
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
         onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
         onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
@@ -646,7 +751,7 @@ export class SessionManager {
         configDir: defaultConfigDir,
         workingDirectory,
         reasoningEffort: reasoningEffort ?? undefined,
-        mcpServers: this.mcpServers,
+        mcpServers: this.resolveMcpServers(workingDirectory),
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
       })
     );
