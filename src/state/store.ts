@@ -16,22 +16,31 @@ function migrateChannelPrefsNullable(db: Database.Database): void {
   );
   if (!needsMigration) return;
 
-  db.exec(`
-    CREATE TABLE channel_prefs_new (
-      channel_id TEXT PRIMARY KEY,
-      model TEXT,
-      agent TEXT,
-      verbose INTEGER,
-      trigger_mode TEXT,
-      threaded_replies INTEGER,
-      permission_mode TEXT,
-      reasoning_effort TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    INSERT INTO channel_prefs_new SELECT * FROM channel_prefs;
-    DROP TABLE channel_prefs;
-    ALTER TABLE channel_prefs_new RENAME TO channel_prefs;
-  `);
+  const migrate = db.transaction(() => {
+    // Clean up leftover temp table from a previously interrupted migration
+    db.exec(`DROP TABLE IF EXISTS channel_prefs_new`);
+    db.exec(`
+      CREATE TABLE channel_prefs_new (
+        channel_id TEXT PRIMARY KEY,
+        model TEXT,
+        agent TEXT,
+        verbose INTEGER,
+        trigger_mode TEXT,
+        threaded_replies INTEGER,
+        permission_mode TEXT,
+        reasoning_effort TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO channel_prefs_new
+        SELECT channel_id, model, agent, verbose, trigger_mode,
+               threaded_replies, permission_mode, reasoning_effort,
+               COALESCE(updated_at, datetime('now'))
+        FROM channel_prefs;
+      DROP TABLE channel_prefs;
+      ALTER TABLE channel_prefs_new RENAME TO channel_prefs;
+    `);
+  });
+  migrate();
 }
 
 function getDb(): Database.Database {
