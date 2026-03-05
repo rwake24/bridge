@@ -67,9 +67,11 @@ export interface InboundMessage {
 
 export interface MessageAttachment {
   type: 'image' | 'file' | 'video' | 'audio';
+  id: string;
   url: string;
-  name?: string;
+  name: string;
   mimeType?: string;
+  size?: number;
 }
 
 // Inbound reaction from any platform
@@ -100,6 +102,10 @@ export interface ChannelAdapter {
   setTyping(channelId: string): Promise<void>;
   replyInThread(channelId: string, rootId: string, content: string): Promise<string>;
   getBotUserId(): string;
+  /** Download a file attachment to a local path. Returns the written path. */
+  downloadFile(fileId: string, destPath: string): Promise<string>;
+  /** Upload a local file and send it as a message in a channel. Returns the post ID. */
+  sendFile(channelId: string, filePath: string, message?: string, opts?: SendOpts): Promise<string>;
 }
 
 // Session state tracked per channel

@@ -293,6 +293,8 @@ export class SessionManager {
   private pendingUserInput = new Map<string, PendingUserInput[]>();
   // Cached context usage from session.usage_info events
   private contextUsage = new Map<string, { currentTokens: number; tokenLimit: number }>();
+  // Handler for send_file tool (set by index.ts, calls adapter.sendFile)
+  private sendFileHandler: ((channelId: string, filePath: string, message?: string) => Promise<string>) | null = null;
 
   constructor(bridge: CopilotBridge) {
     this.bridge = bridge;
@@ -303,6 +305,11 @@ export class SessionManager {
   /** Register a handler for session events (streaming, tool calls, etc.) */
   onSessionEvent(handler: SessionEventHandler): void {
     this.eventHandler = handler;
+  }
+
+  /** Register handler for the send_file custom tool. */
+  onSendFile(handler: (channelId: string, filePath: string, message?: string) => Promise<string>): void {
+    this.sendFileHandler = handler;
   }
 
   /**
@@ -466,7 +473,7 @@ export class SessionManager {
   }
 
   /** Send a message to a channel's session. Returns immediately; responses come via events. */
-  async sendMessage(channelId: string, text: string): Promise<string> {
+  async sendMessage(channelId: string, text: string, attachments?: Array<{ type: 'file'; path: string; displayName?: string }>): Promise<string> {
     // Auto-deny any pending permissions so the session unblocks
     this.clearPendingPermissions(channelId);
 
@@ -474,8 +481,10 @@ export class SessionManager {
     const session = this.bridge.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found after ensure`);
 
+    const sendOpts = { prompt: text, attachments };
+
     try {
-      const messageId = await session.send({ prompt: text });
+      const messageId = await session.send(sendOpts);
       return messageId;
     } catch (err: any) {
       const msg = String(err?.message ?? err);
@@ -491,7 +500,7 @@ export class SessionManager {
         const reconnected = this.bridge.getSession(sessionId);
         if (reconnected) {
           log.info(`Re-attached session ${sessionId} successfully`);
-          return reconnected.send({ prompt: text });
+          return reconnected.send(sendOpts);
         }
       } catch (retryErr: any) {
         log.warn(`Re-attach failed:`, retryErr?.message ?? retryErr);
@@ -502,7 +511,7 @@ export class SessionManager {
       const newSessionId = await this.newSession(channelId);
       const newSession = this.bridge.getSession(newSessionId);
       if (!newSession) throw new Error(`New session ${newSessionId} not found`);
-      return newSession.send({ prompt: text });
+      return newSession.send(sendOpts);
     }
   }
 
@@ -743,6 +752,7 @@ export class SessionManager {
     this.sessionChannels.set(sessionId, channelId);
     setChannelSession(channelId, sessionId);
 
+    this.registerCustomTools(session, channelId);
     this.attachSessionEvents(session, channelId);
 
     log.info(`Created session ${sessionId} for channel ${channelId}`);
@@ -770,7 +780,43 @@ export class SessionManager {
 
     this.channelSessions.set(channelId, sessionId);
     this.sessionChannels.set(sessionId, channelId);
+    this.registerCustomTools(session, channelId);
     this.attachSessionEvents(session, channelId);
+  }
+
+  /** Register bridge-provided custom tools on a session. */
+  private registerCustomTools(session: CopilotSession, channelId: string): void {
+    const tools: any[] = [];
+
+    if (this.sendFileHandler) {
+      const handler = this.sendFileHandler;
+      tools.push({
+        name: 'send_file',
+        description: 'Send a file or image from the workspace to the user in their chat channel. The file will appear as an inline image (for image types) or a downloadable attachment.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Absolute path to the file to send' },
+            message: { type: 'string', description: 'Optional message to accompany the file' },
+          },
+          required: ['path'],
+        },
+        handler: async (args: { path: string; message?: string }) => {
+          try {
+            await handler(channelId, args.path, args.message);
+            return { content: `File sent: ${path.basename(args.path)}` };
+          } catch (err: any) {
+            log.error(`send_file failed for channel ${channelId.slice(0, 8)}...:`, err);
+            return { content: `Failed to send file: ${err?.message ?? 'unknown error'}` };
+          }
+        },
+      });
+    }
+
+    if (tools.length > 0) {
+      session.registerTools(tools);
+      log.info(`Registered ${tools.length} custom tool(s) for session ${session.sessionId}`);
+    }
   }
 
   private attachSessionEvents(session: CopilotSession, channelId: string): void {

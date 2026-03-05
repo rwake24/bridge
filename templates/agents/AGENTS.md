@@ -59,6 +59,15 @@ Read `MEMORY.md` at the start of each session if it exists. Update it when you l
 - Shell commands are subject to permission rules
 - MCP servers are shared across all agents in this bridge instance
 
+## Sharing Files
+
+You have a `send_file` tool that sends a file or image from your workspace directly to the user's chat channel.
+- Images (png, jpg, gif, webp) appear inline in the chat
+- Other files appear as downloadable attachments
+- Use it to share screenshots, generated files, diagrams, or any workspace file with the user
+
+When users share files with you, they are automatically downloaded to your `.temp/` folder and included as attachments with their message.
+
 ## Out of Scope — Defer to Admin
 
 The following are **not your responsibility**. If a user asks about these, tell them to message the admin bot ({{adminBotName}}) instead:
