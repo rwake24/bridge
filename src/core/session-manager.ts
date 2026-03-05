@@ -733,6 +733,7 @@ export class SessionManager {
 
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
+    const customTools = this.buildCustomTools(channelId);
 
     const session = await withWorkspaceEnv(workingDirectory, () =>
       this.bridge.createSession({
@@ -744,6 +745,7 @@ export class SessionManager {
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
         onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
         onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
+        tools: customTools.length > 0 ? customTools : undefined,
       })
     );
 
@@ -752,7 +754,6 @@ export class SessionManager {
     this.sessionChannels.set(sessionId, channelId);
     setChannelSession(channelId, sessionId);
 
-    this.registerCustomTools(session, channelId);
     this.attachSessionEvents(session, channelId);
 
     log.info(`Created session ${sessionId} for channel ${channelId}`);
@@ -765,6 +766,7 @@ export class SessionManager {
     const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
+    const customTools = this.buildCustomTools(channelId);
 
     const session = await withWorkspaceEnv(workingDirectory, () =>
       this.bridge.resumeSession(sessionId, {
@@ -775,17 +777,17 @@ export class SessionManager {
         reasoningEffort: reasoningEffort ?? undefined,
         mcpServers: this.resolveMcpServers(workingDirectory),
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+        tools: customTools.length > 0 ? customTools : undefined,
       })
     );
 
     this.channelSessions.set(channelId, sessionId);
     this.sessionChannels.set(sessionId, channelId);
-    this.registerCustomTools(session, channelId);
     this.attachSessionEvents(session, channelId);
   }
 
-  /** Register bridge-provided custom tools on a session. */
-  private registerCustomTools(session: CopilotSession, channelId: string): void {
+  /** Build custom tool definitions to pass to SDK session creation. */
+  private buildCustomTools(channelId: string): any[] {
     const tools: any[] = [];
 
     if (this.sendFileHandler) {
@@ -828,9 +830,9 @@ export class SessionManager {
     }
 
     if (tools.length > 0) {
-      session.registerTools(tools);
-      log.info(`Registered ${tools.length} custom tool(s) for session ${session.sessionId}`);
+      log.info(`Built ${tools.length} custom tool(s) for channel ${channelId.slice(0, 8)}...`);
     }
+    return tools;
   }
 
   private attachSessionEvents(session: CopilotSession, channelId: string): void {
