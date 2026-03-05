@@ -9,45 +9,51 @@ let _db: Database.Database | null = null;
 
 /** Migrate channel_prefs: drop NOT NULL on columns that should be nullable. */
 function migrateChannelPrefsNullable(db: Database.Database): void {
-  // Check if migration is needed by inspecting column info
   const cols = db.prepare("PRAGMA table_info('channel_prefs')").all() as any[];
+  const nullableTargets = new Set(['verbose', 'trigger_mode', 'threaded_replies', 'permission_mode']);
   const needsMigration = cols.some(
-    (c: any) => ['verbose', 'trigger_mode', 'threaded_replies', 'permission_mode'].includes(c.name) && c.notnull === 1
+    (c: any) => nullableTargets.has(c.name) && c.notnull === 1
   );
   if (!needsMigration) return;
 
-  const existingCols = new Set(cols.map((c: any) => c.name));
-  const targetCols = [
-    'channel_id', 'model', 'agent', 'verbose', 'trigger_mode',
-    'threaded_replies', 'permission_mode', 'reasoning_effort',
-  ];
-  // Build SELECT expressions: use the column if it exists, NULL otherwise
-  const selectExprs = targetCols.map(col => existingCols.has(col) ? col : `NULL AS ${col}`);
-  selectExprs.push(existingCols.has('updated_at') ? "COALESCE(updated_at, datetime('now'))" : "datetime('now')");
+  // Build dynamic column definitions preserving all existing columns
+  const columnDefs: string[] = [];
+  const selectExprs: string[] = [];
+
+  for (const c of cols) {
+    const name = c.name as string;
+    const parts: string[] = [`"${name}"`];
+    if (c.type) parts.push(c.type);
+    if (c.pk === 1) parts.push('PRIMARY KEY');
+    // Drop NOT NULL only for targeted columns; preserve for others
+    if (c.notnull === 1 && !nullableTargets.has(name)) parts.push('NOT NULL');
+    if (c.dflt_value !== null && c.dflt_value !== undefined) parts.push(`DEFAULT ${c.dflt_value}`);
+    columnDefs.push(parts.join(' '));
+
+    // Ensure updated_at is non-NULL during copy
+    if (name === 'updated_at') {
+      selectExprs.push("COALESCE(updated_at, datetime('now'))");
+    } else {
+      selectExprs.push(`"${name}"`);
+    }
+  }
+
+  // Capture existing indexes/triggers to recreate after rebuild
+  const schemaObjects = db.prepare(
+    "SELECT sql FROM sqlite_master WHERE tbl_name = 'channel_prefs' AND type IN ('index','trigger') AND sql IS NOT NULL"
+  ).all() as any[];
 
   const migrate = db.transaction(() => {
-    // Clean up leftover temp table from a previously interrupted migration
     db.exec(`DROP TABLE IF EXISTS channel_prefs_new`);
+    db.exec(`CREATE TABLE channel_prefs_new (${columnDefs.join(', ')})`);
     db.exec(`
-      CREATE TABLE channel_prefs_new (
-        channel_id TEXT PRIMARY KEY,
-        model TEXT,
-        agent TEXT,
-        verbose INTEGER,
-        trigger_mode TEXT,
-        threaded_replies INTEGER,
-        permission_mode TEXT,
-        reasoning_effort TEXT,
-        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `);
-    db.exec(`
-      INSERT INTO channel_prefs_new
-        SELECT ${selectExprs.join(', ')}
-        FROM channel_prefs;
+      INSERT INTO channel_prefs_new SELECT ${selectExprs.join(', ')} FROM channel_prefs;
       DROP TABLE channel_prefs;
       ALTER TABLE channel_prefs_new RENAME TO channel_prefs;
     `);
+    for (const obj of schemaObjects) {
+      if (obj.sql) db.exec(obj.sql);
+    }
   });
   migrate();
 }

@@ -14,7 +14,7 @@ function parseBool(input: string, fallback: boolean): boolean {
 
 /** Check if a model should be hidden in streamer mode. */
 function isHiddenModel(model: ModelInfo): boolean {
-  return /\(preview\)|\(internal/i.test(model.name);
+  return /\((preview|internal\b)[^)]*\)/i.test(model.name);
 }
 
 /** Get the redacted display name for a hidden model. */
@@ -39,7 +39,7 @@ export interface CommandResult {
   handled: boolean;
   response?: string;
   action?: 'new_session' | 'reload_session' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
-           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'set_reasoning' | 'toggle_streamer';
+           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'set_reasoning';
   payload?: any;
 }
 

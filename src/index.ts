@@ -366,7 +366,8 @@ async function handleInboundMessage(
           await sessionManager.switchModel(msg.channelId, cmdResult.payload);
           await adapter.updateMessage(msg.channelId, ackId, cmdResult.response ?? '✅ Model switched.');
         } catch (err: any) {
-          await adapter.updateMessage(msg.channelId, ackId, `❌ Failed to switch model: ${err?.message ?? 'unknown error'}`);
+          log.error(`Failed to switch model on ${msg.channelId.slice(0, 8)}...:`, err);
+          await adapter.updateMessage(msg.channelId, ackId, '❌ Failed to switch model. Check logs for details.');
         }
         break;
       }
@@ -376,7 +377,8 @@ async function handleInboundMessage(
           await sessionManager.switchAgent(msg.channelId, cmdResult.payload);
           await adapter.updateMessage(msg.channelId, ackId, cmdResult.response ?? '✅ Agent switched.');
         } catch (err: any) {
-          await adapter.updateMessage(msg.channelId, ackId, `❌ Failed to switch agent: ${err?.message ?? 'unknown error'}`);
+          log.error(`Failed to switch agent on ${msg.channelId.slice(0, 8)}...:`, err);
+          await adapter.updateMessage(msg.channelId, ackId, '❌ Failed to switch agent. Check logs for details.');
         }
         break;
       }
