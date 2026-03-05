@@ -11,6 +11,7 @@ import {
 import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { createLogger } from '../logger.js';
+import type { McpServerInfo } from './command-handler.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
 } from '../types.js';
@@ -181,15 +182,14 @@ function normalizeMcpServers(servers: Record<string, any>): void {
  * is long-lived and does not inherit bridge process.env changes).
  * Also expands ${VAR} references in env values from .env or process.env.
  */
-function loadWorkspaceMcpServers(workspacePath: string): Record<string, any> {
+function loadWorkspaceMcpServers(workspacePath: string): { servers: Record<string, any>; env: Record<string, string> } {
+  const workspaceEnv = parseEnvFile(path.join(workspacePath, '.env'));
   const configFile = path.join(workspacePath, 'mcp-config.json');
-  if (!fs.existsSync(configFile)) return {};
+  if (!fs.existsSync(configFile)) return { servers: {}, env: workspaceEnv };
 
   try {
     const cfg = JSON.parse(fs.readFileSync(configFile, 'utf8'));
-    if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') return {};
-
-    const workspaceEnv = parseEnvFile(path.join(workspacePath, '.env'));
+    if (!cfg.mcpServers || typeof cfg.mcpServers !== 'object') return { servers: {}, env: workspaceEnv };
 
     const servers: Record<string, any> = {};
     for (const [name, config] of Object.entries(cfg.mcpServers)) {
@@ -219,10 +219,10 @@ function loadWorkspaceMcpServers(workspacePath: string): Record<string, any> {
       log.debug(`Loaded workspace MCP "${name}" from ${configFile}`);
     }
     normalizeMcpServers(servers);
-    return servers;
+    return { servers, env: workspaceEnv };
   } catch (err) {
     log.warn(`Failed to parse workspace MCP config ${configFile}: ${err}`);
-    return {};
+    return { servers: {}, env: workspaceEnv };
   }
 }
 
@@ -308,8 +308,7 @@ export class SessionManager {
    * merged on top of global servers (plugin + user config).
    */
   private resolveMcpServers(workingDirectory: string): Record<string, any> {
-    const workspaceServers = loadWorkspaceMcpServers(workingDirectory);
-    const workspaceEnv = parseEnvFile(path.join(workingDirectory, '.env'));
+    const { servers: workspaceServers, env: workspaceEnv } = loadWorkspaceMcpServers(workingDirectory);
 
     // Clone global servers and inject workspace .env into local ones
     const merged: Record<string, any> = {};
@@ -327,14 +326,14 @@ export class SessionManager {
   }
 
   /** Get annotated MCP server info for a channel, showing which layer each server came from. */
-  getMcpServerInfo(channelId: string): Array<{ name: string; source: 'global' | 'workspace' | 'workspace (override)' }> {
+  getMcpServerInfo(channelId: string): McpServerInfo[] {
     const workingDirectory = this.resolveWorkingDirectory(channelId);
-    const workspaceServers = loadWorkspaceMcpServers(workingDirectory);
+    const { servers: workspaceServers } = loadWorkspaceMcpServers(workingDirectory);
     const globalNames = new Set(Object.keys(this.mcpServers));
 
-    const result: Array<{ name: string; source: 'global' | 'workspace' | 'workspace (override)' }> = [];
+    const result: McpServerInfo[] = [];
 
-    // Global servers (not overridden by workspace)
+    // All global servers — mark workspace overrides accordingly
     for (const name of globalNames) {
       if (name in workspaceServers) {
         result.push({ name, source: 'workspace (override)' });
