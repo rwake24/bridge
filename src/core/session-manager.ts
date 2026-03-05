@@ -195,22 +195,24 @@ function loadWorkspaceMcpServers(workspacePath: string): Record<string, any> {
     for (const [name, config] of Object.entries(cfg.mcpServers)) {
       const serverConfig = config as any;
 
+      // Expand ${VAR} references in config-defined env values BEFORE merging .env
+      // (only config-authored keys get expansion; .env values are always literal)
+      const configEnv = serverConfig.env ? { ...serverConfig.env } : {};
+      for (const [key, value] of Object.entries(configEnv)) {
+        if (typeof value === 'string' && value.includes('${')) {
+          configEnv[key] = (value as string).replace(/\$\{(\w+)\}/g, (_, varName) =>
+            workspaceEnv[varName] ?? process.env[varName] ?? '',
+          );
+        }
+      }
+
       // Inject workspace .env vars into local MCP servers
       const isLocal = !serverConfig.type || serverConfig.type === 'local' || serverConfig.type === 'stdio';
       if (isLocal && Object.keys(workspaceEnv).length > 0) {
-        // Workspace .env as base, explicit config env overrides
-        serverConfig.env = { ...workspaceEnv, ...(serverConfig.env || {}) };
-      }
-
-      // Expand ${VAR} references in env values
-      if (serverConfig.env) {
-        for (const [key, value] of Object.entries(serverConfig.env)) {
-          if (typeof value === 'string' && value.includes('${')) {
-            serverConfig.env[key] = (value as string).replace(/\$\{(\w+)\}/g, (_, varName) =>
-              workspaceEnv[varName] ?? process.env[varName] ?? '',
-            );
-          }
-        }
+        // Workspace .env as base, expanded config env overrides
+        serverConfig.env = { ...workspaceEnv, ...configEnv };
+      } else {
+        serverConfig.env = configEnv;
       }
 
       servers[name] = serverConfig;
@@ -307,8 +309,21 @@ export class SessionManager {
    */
   private resolveMcpServers(workingDirectory: string): Record<string, any> {
     const workspaceServers = loadWorkspaceMcpServers(workingDirectory);
-    if (Object.keys(workspaceServers).length === 0) return this.mcpServers;
-    return { ...this.mcpServers, ...workspaceServers };
+    const workspaceEnv = parseEnvFile(path.join(workingDirectory, '.env'));
+
+    // Clone global servers and inject workspace .env into local ones
+    const merged: Record<string, any> = {};
+    for (const [name, config] of Object.entries(this.mcpServers)) {
+      const serverConfig = { ...(config as any) };
+      const isLocal = !serverConfig.type || serverConfig.type === 'local' || serverConfig.type === 'stdio';
+      if (isLocal && Object.keys(workspaceEnv).length > 0) {
+        serverConfig.env = { ...workspaceEnv, ...(serverConfig.env || {}) };
+      }
+      merged[name] = serverConfig;
+    }
+
+    if (Object.keys(workspaceServers).length === 0) return merged;
+    return { ...merged, ...workspaceServers };
   }
 
   /** Get annotated MCP server info for a channel, showing which layer each server came from. */
