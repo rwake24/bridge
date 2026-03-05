@@ -31,10 +31,10 @@ function getDb(): Database.Database {
       channel_id TEXT PRIMARY KEY,
       model TEXT,
       agent TEXT,
-      verbose INTEGER NOT NULL DEFAULT 0,
-      trigger_mode TEXT NOT NULL DEFAULT 'mention',
-      threaded_replies INTEGER NOT NULL DEFAULT 1,
-      permission_mode TEXT NOT NULL DEFAULT 'interactive',
+      verbose INTEGER,
+      trigger_mode TEXT,
+      threaded_replies INTEGER,
+      permission_mode TEXT,
       reasoning_effort TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -100,10 +100,10 @@ export function getAllChannelSessions(): Array<{ channelId: string; sessionId: s
 export interface ChannelPrefs {
   model?: string;
   agent?: string | null;
-  verbose: boolean;
+  verbose?: boolean;
 
-  threadedReplies: boolean;
-  permissionMode: string;
+  threadedReplies?: boolean;
+  permissionMode?: string;
   reasoningEffort?: string | null;
 }
 
@@ -112,12 +112,12 @@ export function getChannelPrefs(channelId: string): ChannelPrefs | null {
   const row = db.prepare('SELECT * FROM channel_prefs WHERE channel_id = ?').get(channelId) as any;
   if (!row) return null;
   return {
-    model: row.model,
+    model: row.model ?? undefined,
     agent: row.agent,
-    verbose: !!row.verbose,
+    verbose: row.verbose != null ? !!row.verbose : undefined,
 
-    threadedReplies: !!row.threaded_replies,
-    permissionMode: row.permission_mode,
+    threadedReplies: row.threaded_replies != null ? !!row.threaded_replies : undefined,
+    permissionMode: row.permission_mode ?? undefined,
     reasoningEffort: row.reasoning_effort ?? null,
   };
 }
@@ -151,9 +151,9 @@ export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>)
       channelId,
       prefs.model ?? null,
       prefs.agent ?? null,
-      prefs.verbose ? 1 : 0,
-      prefs.threadedReplies !== false ? 1 : 0,
-      prefs.permissionMode ?? 'interactive',
+      prefs.verbose != null ? (prefs.verbose ? 1 : 0) : null,
+      prefs.threadedReplies != null ? (prefs.threadedReplies ? 1 : 0) : null,
+      prefs.permissionMode ?? null,
       prefs.reasoningEffort ?? null,
     );
   }

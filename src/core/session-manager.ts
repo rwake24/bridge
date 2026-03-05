@@ -551,7 +551,7 @@ export class SessionManager {
   }
 
   /** Get effective preferences for a channel (config merged with runtime overrides). */
-  getEffectivePrefs(channelId: string): ChannelPrefs & { model: string; triggerMode: 'mention' | 'all' } {
+  getEffectivePrefs(channelId: string): ChannelPrefs & { model: string; verbose: boolean; threadedReplies: boolean; permissionMode: string; triggerMode: 'mention' | 'all' } {
     const configChannel = getChannelConfig(channelId);
     const storedPrefs = getChannelPrefs(channelId);
     return {
