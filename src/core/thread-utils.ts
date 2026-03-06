@@ -5,7 +5,9 @@
  * strips them before forwarding, and resolves the thread root for a message.
  */
 
-const THREAD_TRIGGER_RE = /(?:^|\s)(?:🧵|:thread:)(?:\s|$)/gi;
+// Emoji/shortcode triggers — allow punctuation or string boundaries adjacent
+const THREAD_TRIGGER_RE = /\s*(?:🧵|:thread:)\s*/gi;
+// Phrase trigger — only at start or end to avoid mangling natural language
 const THREAD_PHRASE_RE = /^\s*reply in thread\b\s*|\s*\breply in thread\s*$/gi;
 
 /** Detect and strip dynamic thread-request triggers from message text. */
@@ -18,10 +20,15 @@ export function extractThreadRequest(text: string): { text: string; threadReques
   const threadRequested = hasEmoji || hasPhrase;
   if (!threadRequested) return { text, threadRequested: false };
 
+  // Strip emoji/shortcode triggers first, then re-check phrase on stripped text
   let stripped = text;
   if (hasEmoji) stripped = stripped.replace(THREAD_TRIGGER_RE, ' ');
   THREAD_TRIGGER_RE.lastIndex = 0;
-  if (hasPhrase) stripped = stripped.replace(THREAD_PHRASE_RE, ' ');
+
+  // Re-check phrase against stripped text (emoji removal may expose phrase at start/end)
+  const hasPhraseAfterStrip = THREAD_PHRASE_RE.test(stripped);
+  THREAD_PHRASE_RE.lastIndex = 0;
+  if (hasPhrase || hasPhraseAfterStrip) stripped = stripped.replace(THREAD_PHRASE_RE, ' ');
   THREAD_PHRASE_RE.lastIndex = 0;
 
   return { text: stripped.trim(), threadRequested: true };

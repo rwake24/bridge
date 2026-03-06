@@ -38,10 +38,20 @@ describe('extractThreadRequest', () => {
     expect(result.text).toBe('');
   });
 
-  it('strips emoji but not mid-sentence phrase', () => {
+  it('strips emoji and phrase when both present', () => {
     const result = extractThreadRequest('🧵 reply in thread do this');
     expect(result.threadRequested).toBe(true);
-    expect(result.text).toBe('reply in thread do this');
+    expect(result.text).toBe('do this');
+  });
+
+  it('detects 🧵 adjacent to punctuation', () => {
+    const result = extractThreadRequest('check this🧵.');
+    expect(result.threadRequested).toBe(true);
+  });
+
+  it('detects :thread: adjacent to punctuation', () => {
+    const result = extractThreadRequest('hello :thread:, thanks');
+    expect(result.threadRequested).toBe(true);
   });
 
   it('detects :thread: shortcode and strips it', () => {
