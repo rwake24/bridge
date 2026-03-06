@@ -76,7 +76,7 @@ async function downloadAttachments(
       const safeName = sanitizeFilename(att.name);
       const destPath = path.join(tempDir, `${att.id}-${safeName}`);
       // Verify resolved path is still within tempDir
-      if (!path.resolve(destPath).startsWith(path.resolve(tempDir))) {
+      if (!path.resolve(destPath).startsWith(path.resolve(tempDir) + path.sep)) {
         log.warn(`Attachment "${att.name}" resolved outside temp dir, skipping`);
         continue;
       }

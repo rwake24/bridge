@@ -239,7 +239,7 @@ export class MattermostAdapter implements ChannelAdapter {
     const baseUrl = this.client.getBaseRoute();
     const fileName = path.basename(filePath);
 
-    // Stream the file to avoid blocking the event loop for large files
+    // Async read to avoid blocking the event loop
     const fileBuffer = await fs.promises.readFile(filePath);
 
     // Upload the file

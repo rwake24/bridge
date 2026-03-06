@@ -812,15 +812,22 @@ export class SessionManager {
           try {
             // Resolve relative paths against workspace
             const resolved = path.isAbsolute(args.path) ? path.resolve(args.path) : path.resolve(workDir, args.path);
-            // Validate the file path is within workspace or allowed paths
+            // Resolve symlinks to prevent traversal via symlink targets
+            let realPath: string;
+            try {
+              realPath = fs.realpathSync(resolved);
+            } catch {
+              return { content: 'File not found.' };
+            }
+            // Validate the real file path is within workspace or allowed paths
             const allowed = [workDir, ...allowPaths];
-            const isAllowed = allowed.some(dir => resolved.startsWith(path.resolve(dir) + path.sep) || resolved === path.resolve(dir));
+            const isAllowed = allowed.some(dir => realPath.startsWith(path.resolve(dir) + path.sep) || realPath === path.resolve(dir));
             if (!isAllowed) {
-              log.warn(`send_file blocked: "${resolved}" is outside workspace for channel ${channelId.slice(0, 8)}...`);
+              log.warn(`send_file blocked: "${realPath}" is outside workspace for channel ${channelId.slice(0, 8)}...`);
               return { content: 'File path is outside the allowed workspace. Only files within your workspace can be sent.' };
             }
-            await handler(channelId, resolved, args.message);
-            return { content: `File sent: ${path.basename(resolved)}` };
+            await handler(channelId, realPath, args.message);
+            return { content: `File sent: ${path.basename(realPath)}` };
           } catch (err: any) {
             log.error(`send_file failed for channel ${channelId.slice(0, 8)}...:`, err);
             return { content: `Failed to send file: ${err?.message ?? 'unknown error'}` };
