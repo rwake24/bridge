@@ -8,7 +8,9 @@ import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, getAllChannelSessions, closeDb } from './state/store.js';
 import { createLogger } from './logger.js';
-import type { ChannelAdapter, InboundMessage, InboundReaction } from './types.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { ChannelAdapter, InboundMessage, InboundReaction, MessageAttachment } from './types.js';
 
 const log = createLogger('bridge');
 
@@ -49,6 +51,64 @@ function formatAge(date: Date): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** Sanitize a filename to prevent path traversal — strips directory separators and .. sequences. */
+function sanitizeFilename(name: string): string {
+  return name.replace(/[/\\]/g, '_').replace(/\.\./g, '_');
+}
+
+/** Download message attachments to .temp/<channelId>/ in the bot's workspace, returning SDK-compatible attachment objects. */
+async function downloadAttachments(
+  attachments: MessageAttachment[] | undefined,
+  channelId: string,
+  adapter: ChannelAdapter,
+): Promise<Array<{ type: 'file'; path: string; displayName?: string }>> {
+  if (!attachments || attachments.length === 0) return [];
+
+  const botName = getChannelBotName(channelId);
+  const workspace = getWorkspacePath(botName);
+  const tempDir = path.join(workspace, '.temp', channelId);
+
+  const results: Array<{ type: 'file'; path: string; displayName?: string }> = [];
+  for (const att of attachments) {
+    try {
+      const safeName = sanitizeFilename(att.name);
+      const destPath = path.join(tempDir, `${att.id}-${safeName}`);
+      // Verify resolved path is still within tempDir
+      if (!path.resolve(destPath).startsWith(path.resolve(tempDir) + path.sep)) {
+        log.warn(`Attachment "${att.name}" resolved outside temp dir, skipping`);
+        continue;
+      }
+      await adapter.downloadFile(att.id, destPath);
+      results.push({ type: 'file', path: destPath, displayName: att.name });
+      log.info(`Downloaded attachment "${att.name}" (${att.type}) for channel ${channelId.slice(0, 8)}...`);
+    } catch (err) {
+      log.warn(`Failed to download attachment "${att.name}":`, err);
+    }
+  }
+  return results;
+}
+
+/** Remove temp files for a specific channel's temp directory. */
+function cleanupTempFiles(channelId: string): void {
+  try {
+    const botName = getChannelBotName(channelId);
+    const tempDir = path.join(getWorkspacePath(botName), '.temp', channelId);
+    if (!fs.existsSync(tempDir)) return;
+
+    const files = fs.readdirSync(tempDir);
+    for (const file of files) {
+      try {
+        fs.unlinkSync(path.join(tempDir, file));
+      } catch { /* best effort */ }
+    }
+    // Remove the now-empty channel temp directory
+    try { fs.rmdirSync(tempDir); } catch { /* best effort */ }
+    if (files.length > 0) {
+      log.info(`Cleaned up ${files.length} temp file(s) for ${channelId.slice(0, 8)}...`);
+    }
+  } catch { /* best effort */ }
 }
 
 function getAdapterForChannel(channelId: string): { adapter: ChannelAdapter; streaming: StreamingHandler } | null {
@@ -118,6 +178,16 @@ async function main(): Promise<void> {
         .catch(err => log.error(`Unhandled error in event handler:`, err))
     );
     eventLocks.set(channelId, next);
+  });
+
+  // Wire up send_file tool → adapter.sendFile (with thread context)
+  sessionManager.onSendFile(async (channelId, filePath, message) => {
+    const resolved = getAdapterForChannel(channelId);
+    if (!resolved) throw new Error('No adapter for channel');
+    // Preserve thread context if threaded replies are active
+    const streamKey = activeStreams.get(channelId);
+    const threadRootId = streamKey ? resolved.streaming.getStreamThreadRootId(streamKey) : undefined;
+    return resolved.adapter.sendFile(channelId, filePath, message, { threadRootId });
   });
 
   // Connect all bot adapters and wire up handlers
@@ -435,7 +505,10 @@ async function handleInboundMessage(
     const streamKey = await streaming.startStream(msg.channelId, threadRoot);
     activeStreams.set(msg.channelId, streamKey);
 
-    await sessionManager.sendMessage(msg.channelId, text);
+    // Download any file attachments to .temp/ in the bot's workspace
+    const sdkAttachments = await downloadAttachments(msg.attachments, msg.channelId, adapter);
+
+    await sessionManager.sendMessage(msg.channelId, text, sdkAttachments.length > 0 ? sdkAttachments : undefined);
   } catch (err) {
     log.error(`Error sending message for channel ${msg.channelId}:`, err);
     const streamKey = activeStreams.get(msg.channelId);
@@ -639,6 +712,8 @@ async function handleSessionEvent(
           await streaming.finalizeStream(streamKey);
           activeStreams.delete(channelId);
         }
+        // Clean up temp files from downloaded attachments
+        cleanupTempFiles(channelId);
       }
       break;
   }

@@ -1,7 +1,9 @@
 import { Client4, WebSocketClient } from '@mattermost/client';
 import WebSocket from 'ws';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createLogger } from '../../logger.js';
-import type { ChannelAdapter, InboundMessage, InboundReaction, SendOpts } from '../../types.js';
+import type { ChannelAdapter, InboundMessage, InboundReaction, SendOpts, MessageAttachment } from '../../types.js';
 
 const log = createLogger('mattermost');
 
@@ -173,6 +175,7 @@ export class MattermostAdapter implements ChannelAdapter {
         threadRootId: post.root_id || undefined,
         mentionsBot,
         isDM,
+        attachments: this.extractAttachments(post),
       };
 
       log.info(`Received: "${inbound.text.slice(0, 80)}" from ${inbound.username} in ${inbound.channelId} (isDM=${isDM})`);
@@ -190,6 +193,79 @@ export class MattermostAdapter implements ChannelAdapter {
     } catch (err) {
       log.error('Failed to parse posted event:', err);
     }
+  }
+
+  private extractAttachments(post: any): MessageAttachment[] | undefined {
+    const fileIds: string[] = post.file_ids ?? [];
+    const metadata = post.metadata?.files as any[] | undefined;
+    if (fileIds.length === 0) return undefined;
+
+    return fileIds.map((id, i) => {
+      const info = metadata?.[i];
+      const name = info?.name ?? `file-${id}`;
+      const mimeType = info?.mime_type ?? '';
+      const ext = info?.extension ?? '';
+      const size = info?.size;
+
+      let type: MessageAttachment['type'] = 'file';
+      if (mimeType.startsWith('image/')) type = 'image';
+      else if (mimeType.startsWith('video/')) type = 'video';
+      else if (mimeType.startsWith('audio/')) type = 'audio';
+
+      const baseUrl = this.client.getBaseRoute();
+      const url = `${baseUrl}/files/${id}`;
+
+      return { id, type, url, name: name + (ext && !name.endsWith(`.${ext}`) ? `.${ext}` : ''), mimeType, size };
+    });
+  }
+
+  async downloadFile(fileId: string, destPath: string): Promise<string> {
+    const baseUrl = this.client.getBaseRoute();
+    const resp = await fetch(`${baseUrl}/files/${fileId}`, {
+      headers: { 'Authorization': `Bearer ${this.token}` },
+    });
+    if (!resp.ok) throw new Error(`Failed to download file ${fileId}: ${resp.status}`);
+
+    const dir = path.dirname(destPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+    const buffer = Buffer.from(await resp.arrayBuffer());
+    fs.writeFileSync(destPath, buffer);
+    log.info(`Downloaded file ${fileId} to ${destPath} (${buffer.length} bytes)`);
+    return destPath;
+  }
+
+  async sendFile(channelId: string, filePath: string, message?: string, opts?: SendOpts): Promise<string> {
+    const baseUrl = this.client.getBaseRoute();
+    const fileName = path.basename(filePath);
+
+    // Async read to avoid blocking the event loop
+    const fileBuffer = await fs.promises.readFile(filePath);
+
+    // Upload the file
+    const form = new FormData();
+    form.append('files', new Blob([fileBuffer]), fileName);
+    form.append('channel_id', channelId);
+
+    const uploadResp = await fetch(`${baseUrl}/files`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${this.token}` },
+      body: form,
+    });
+    if (!uploadResp.ok) throw new Error(`Failed to upload file: ${uploadResp.status}`);
+    const uploadResult = await uploadResp.json() as { file_infos: Array<{ id: string }> };
+    const fileIds = uploadResult.file_infos.map(f => f.id);
+
+    // Create post with the file
+    const post = await this.client.createPost({
+      channel_id: channelId,
+      message: message ?? '',
+      root_id: opts?.threadRootId ?? '',
+      file_ids: fileIds,
+    } as any);
+
+    log.info(`Sent file "${fileName}" to channel ${channelId.slice(0, 8)}...`);
+    return post.id;
   }
 
   private handleReaction(msg: any): void {

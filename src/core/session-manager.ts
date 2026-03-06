@@ -293,6 +293,8 @@ export class SessionManager {
   private pendingUserInput = new Map<string, PendingUserInput[]>();
   // Cached context usage from session.usage_info events
   private contextUsage = new Map<string, { currentTokens: number; tokenLimit: number }>();
+  // Handler for send_file tool (set by index.ts, calls adapter.sendFile)
+  private sendFileHandler: ((channelId: string, filePath: string, message?: string) => Promise<string>) | null = null;
 
   constructor(bridge: CopilotBridge) {
     this.bridge = bridge;
@@ -303,6 +305,11 @@ export class SessionManager {
   /** Register a handler for session events (streaming, tool calls, etc.) */
   onSessionEvent(handler: SessionEventHandler): void {
     this.eventHandler = handler;
+  }
+
+  /** Register handler for the send_file custom tool. */
+  onSendFile(handler: (channelId: string, filePath: string, message?: string) => Promise<string>): void {
+    this.sendFileHandler = handler;
   }
 
   /**
@@ -466,7 +473,7 @@ export class SessionManager {
   }
 
   /** Send a message to a channel's session. Returns immediately; responses come via events. */
-  async sendMessage(channelId: string, text: string): Promise<string> {
+  async sendMessage(channelId: string, text: string, attachments?: Array<{ type: 'file'; path: string; displayName?: string }>): Promise<string> {
     // Auto-deny any pending permissions so the session unblocks
     this.clearPendingPermissions(channelId);
 
@@ -474,8 +481,10 @@ export class SessionManager {
     const session = this.bridge.getSession(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found after ensure`);
 
+    const sendOpts = { prompt: text, attachments };
+
     try {
-      const messageId = await session.send({ prompt: text });
+      const messageId = await session.send(sendOpts);
       return messageId;
     } catch (err: any) {
       const msg = String(err?.message ?? err);
@@ -491,7 +500,7 @@ export class SessionManager {
         const reconnected = this.bridge.getSession(sessionId);
         if (reconnected) {
           log.info(`Re-attached session ${sessionId} successfully`);
-          return reconnected.send({ prompt: text });
+          return reconnected.send(sendOpts);
         }
       } catch (retryErr: any) {
         log.warn(`Re-attach failed:`, retryErr?.message ?? retryErr);
@@ -502,7 +511,7 @@ export class SessionManager {
       const newSessionId = await this.newSession(channelId);
       const newSession = this.bridge.getSession(newSessionId);
       if (!newSession) throw new Error(`New session ${newSessionId} not found`);
-      return newSession.send({ prompt: text });
+      return newSession.send(sendOpts);
     }
   }
 
@@ -724,6 +733,7 @@ export class SessionManager {
 
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
+    const customTools = this.buildCustomTools(channelId);
 
     const session = await withWorkspaceEnv(workingDirectory, () =>
       this.bridge.createSession({
@@ -735,6 +745,7 @@ export class SessionManager {
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
         onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
         onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
+        tools: customTools.length > 0 ? customTools : undefined,
       })
     );
 
@@ -755,6 +766,7 @@ export class SessionManager {
     const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
+    const customTools = this.buildCustomTools(channelId);
 
     const session = await withWorkspaceEnv(workingDirectory, () =>
       this.bridge.resumeSession(sessionId, {
@@ -765,12 +777,69 @@ export class SessionManager {
         reasoningEffort: reasoningEffort ?? undefined,
         mcpServers: this.resolveMcpServers(workingDirectory),
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+        tools: customTools.length > 0 ? customTools : undefined,
       })
     );
 
     this.channelSessions.set(channelId, sessionId);
     this.sessionChannels.set(sessionId, channelId);
     this.attachSessionEvents(session, channelId);
+  }
+
+  /** Build custom tool definitions to pass to SDK session creation. */
+  private buildCustomTools(channelId: string): any[] {
+    const tools: any[] = [];
+
+    if (this.sendFileHandler) {
+      const handler = this.sendFileHandler;
+      const config = getChannelConfig(channelId);
+      const botName = getChannelBotName(channelId);
+      const workDir = this.resolveWorkingDirectory(channelId);
+      const allowPaths = getWorkspaceAllowPaths(botName, config.platform);
+
+      tools.push({
+        name: 'send_file',
+        description: 'Send a file or image from the workspace to the user in their chat channel. The file will appear as an inline image (for image types) or a downloadable attachment.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Path to the file to send (absolute or relative to workspace)' },
+            message: { type: 'string', description: 'Optional message to accompany the file' },
+          },
+          required: ['path'],
+        },
+        handler: async (args: { path: string; message?: string }) => {
+          try {
+            // Resolve relative paths against workspace
+            const resolved = path.isAbsolute(args.path) ? path.resolve(args.path) : path.resolve(workDir, args.path);
+            // Resolve symlinks to prevent traversal via symlink targets
+            let realPath: string;
+            try {
+              realPath = fs.realpathSync(resolved);
+            } catch {
+              return { content: 'File not found.' };
+            }
+            // Validate the real file path is within workspace or allowed paths
+            const allowed = [workDir, ...allowPaths];
+            const isAllowed = allowed.some(dir => realPath.startsWith(path.resolve(dir) + path.sep) || realPath === path.resolve(dir));
+            if (!isAllowed) {
+              log.warn(`send_file blocked: "${realPath}" is outside workspace for channel ${channelId.slice(0, 8)}...`);
+              return { content: 'File path is outside the allowed workspace. Only files within your workspace can be sent.' };
+            }
+            await handler(channelId, realPath, args.message);
+            return { content: `File sent: ${path.basename(realPath)}` };
+          } catch (err: any) {
+            log.error(`send_file failed for channel ${channelId.slice(0, 8)}...:`, err);
+            return { content: `Failed to send file: ${err?.message ?? 'unknown error'}` };
+          }
+        },
+      });
+    }
+
+    if (tools.length > 0) {
+      log.info(`Built ${tools.length} custom tool(s) for channel ${channelId.slice(0, 8)}...`);
+    }
+    return tools;
   }
 
   private attachSessionEvents(session: CopilotSession, channelId: string): void {

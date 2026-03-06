@@ -13,6 +13,7 @@ import {
   type MCPServerConfig,
   type SystemMessageConfig,
   type SessionLifecycleHandler,
+  type Tool,
 } from '@github/copilot-sdk';
 
 // SDK types not re-exported from package root
@@ -68,6 +69,7 @@ export class CopilotBridge {
     onUserInputRequest?: UserInputHandler;
     systemMessage?: SystemMessageConfig;
     customAgents?: CustomAgentConfig[];
+    tools?: Tool[];
   }): Promise<CopilotSession> {
     await this.start();
     const session = await this.client.createSession({
@@ -83,6 +85,7 @@ export class CopilotBridge {
       streaming: true,
       systemMessage: opts.systemMessage,
       customAgents: opts.customAgents,
+      tools: opts.tools,
     });
     this.sessions.set(session.sessionId, session);
     return session;
@@ -100,6 +103,7 @@ export class CopilotBridge {
       reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
       mcpServers?: Record<string, MCPServerConfig>;
       skillDirectories?: string[];
+      tools?: Tool[];
     },
   ): Promise<CopilotSession> {
     await this.start();
@@ -118,6 +122,7 @@ export class CopilotBridge {
       reasoningEffort: opts?.reasoningEffort,
       mcpServers: opts?.mcpServers,
       skillDirectories: opts?.skillDirectories,
+      tools: opts?.tools,
     });
     this.sessions.set(session.sessionId, session);
     return session;
