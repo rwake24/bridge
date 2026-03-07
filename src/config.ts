@@ -277,6 +277,12 @@ const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'dash', 'fish', 'env', 'sud
 
 /** Strip shell wrappers, absolute paths, and subshell flags to find the real command. */
 function unwrapShellCommand(cmd: string): string {
+  // Handle bash/sh -c "..." — extract the quoted payload
+  const dashCMatch = cmd.match(/(?:^|\s)(?:sudo\s+)?(?:bash|sh|zsh|dash)\s+-c\s+["'](.+?)["']\s*$/);
+  if (dashCMatch) {
+    return unwrapShellCommand(dashCMatch[1]);
+  }
+
   let parts = cmd.trim().split(/\s+/);
   // Strip wrappers from front (sudo rm -rf / → rm -rf /)
   while (parts.length > 0) {
@@ -285,7 +291,7 @@ function unwrapShellCommand(cmd: string): string {
     const base = word.includes('/') ? word.split('/').pop()! : word;
     if (SHELL_WRAPPERS.has(base)) {
       parts.shift();
-      // Skip flags of the wrapper (e.g., env -i, bash -c, sudo -u root)
+      // Skip flags of the wrapper (e.g., env -i, sudo -u root)
       while (parts.length > 0 && parts[0].startsWith('-')) parts.shift();
       continue;
     }

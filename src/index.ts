@@ -523,6 +523,8 @@ async function handleInboundMessage(
           if (configRules.length > 0) {
             sections.push('\n**⚙️ Config (config.json):**');
             sections.push(...configRules.map(r => `- **${r.action}** \`${r.spec}\``));
+          } else {
+            sections.push('\n**⚙️ Config (config.json):** _(none)_');
           }
 
           // Stored rules (per-channel)
