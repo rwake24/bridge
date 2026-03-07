@@ -134,6 +134,24 @@ To add a new agent to the bridge:
 - **Create workspace**: `mkdir {{workspacesDir}}/<name>` — auto-detected by the bridge
 - **Remove workspace**: Delete the directory (the bridge detects removal and logs a warning; existing sessions continue until restarted)
 
+### Granting Extra Path Access to an Agent
+
+Agents are sandboxed to their workspace directory by default. To grant read/write access to additional folders (e.g., an Obsidian vault, a shared data directory), use the `workspace_overrides` table in SQLite:
+
+```bash
+# View current overrides
+sqlite3 ~/.copilot-bridge/state.db "SELECT bot_name, working_directory, allow_paths FROM workspace_overrides;"
+
+# Add/update allowPaths for a bot (allow_paths is a JSON array of absolute paths)
+sqlite3 ~/.copilot-bridge/state.db "INSERT INTO workspace_overrides (bot_name, working_directory, allow_paths, created_at)
+VALUES ('<botname>', '<workspace_path>', '[\"<extra_path_1>\", \"<extra_path_2>\"]', datetime('now'))
+ON CONFLICT(bot_name) DO UPDATE SET allow_paths = excluded.allow_paths;"
+```
+
+After updating, the agent needs a **restart** (`/new` in its channel, or restart the bridge) so its AGENTS.md is regenerated with the new paths. The AGENTS.md template renders `allowPaths` as an "Additional Folders" section visible to the agent.
+
+**Do NOT edit source code or config.json for this.** The `workspace_overrides` SQLite table is the correct mechanism.
+
 ### Channel Management
 
 Channels come from **two sources** — know which one to check:
