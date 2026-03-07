@@ -515,28 +515,28 @@ async function handleInboundMessage(
 
           // Hardcoded safety rules
           const hardcoded = getHardcodedRules();
-          sections.push('**🔒 Hardcoded (cannot override):**');
+          sections.push('**🔒 Hardcoded (enforced in all modes including autopilot):**');
           sections.push(...hardcoded.map(r => `- **${r.action}** \`${r.spec}\``));
 
           // Config-level rules
           const configRules = getConfigRules();
           if (configRules.length > 0) {
-            sections.push('\n**⚙️ Config (config.json):**');
+            sections.push('\n**⚙️ Config — config.json (skipped in autopilot):**');
             sections.push(...configRules.map(r => `- **${r.action}** \`${r.spec}\``));
           } else {
-            sections.push('\n**⚙️ Config (config.json):** _(none)_');
+            sections.push('\n**⚙️ Config — config.json (skipped in autopilot):** _(none)_');
           }
 
           // Stored rules (per-channel)
           const stored = listPermissionRulesForScope(msg.channelId);
           if (stored.length > 0) {
-            sections.push('\n**💾 Stored (this channel):**');
+            sections.push('\n**💾 Stored — this channel (skipped in autopilot):**');
             sections.push(...stored.map(r => {
               const spec = r.commandPattern === '*' ? r.tool : `${r.tool}(${r.commandPattern})`;
               return `- **${r.action}** \`${spec}\``;
             }));
           } else {
-            sections.push('\n**💾 Stored (this channel):** _(none)_');
+            sections.push('\n**💾 Stored — this channel (skipped in autopilot):** _(none)_');
           }
 
           await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${sections.join('\n')}`, { threadRootId: threadRoot });
