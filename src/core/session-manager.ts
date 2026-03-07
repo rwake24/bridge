@@ -906,10 +906,10 @@ export class SessionManager {
             let content: string;
 
             if (args.diff) {
-              const { execSync } = await import('node:child_process');
+              const { execFileSync } = await import('node:child_process');
               const dir = path.dirname(realPath);
               try {
-                content = execSync(`git diff -- "${realPath}"`, { cwd: dir, encoding: 'utf-8', timeout: 5000 });
+                content = execFileSync('git', ['diff', '--', realPath], { cwd: dir, encoding: 'utf-8', timeout: 5000 });
                 if (!content.trim()) content = '(no pending changes)';
               } catch {
                 content = '(not a git repository or git diff failed)';

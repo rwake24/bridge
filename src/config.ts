@@ -741,8 +741,14 @@ export class ConfigWatcher {
     }
     if (this.watcher) return;
 
-    log.info(`Watching ${configPath} for config changes`);
-    this.watcher = fs.watch(configPath, { persistent: false }, () => {
+    // Watch the parent directory (not the file) because editors do atomic saves
+    // (write temp + rename), which replaces the inode and kills file-level watchers.
+    const dir = path.dirname(configPath);
+    const filename = path.basename(configPath);
+
+    log.info(`Watching ${dir} for changes to ${filename}`);
+    this.watcher = fs.watch(dir, { persistent: false }, (_event, changedFile) => {
+      if (changedFile !== filename) return;
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(() => this.handleChange(), this.debounceMs);
     });
