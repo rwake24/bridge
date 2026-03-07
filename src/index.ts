@@ -6,7 +6,7 @@ import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './
 import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
-import { getChannelPrefs, getAllChannelSessions, closeDb } from './state/store.js';
+import { getChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
 import { createLogger } from './logger.js';
 import fs from 'node:fs';
@@ -507,6 +507,38 @@ async function handleInboundMessage(
       case 'remember':
         sessionManager.resolvePermission(msg.channelId, true, true);
         break;
+      case 'remember_list': {
+        const rules = listPermissionRulesForScope(msg.channelId);
+        if (rules.length === 0) {
+          await adapter.sendMessage(msg.channelId, '📋 No stored permission rules for this channel.', { threadRootId: threadRoot });
+        } else {
+          const lines = rules.map(r => {
+            const spec = r.commandPattern === '*' ? r.tool : `${r.tool}(${r.commandPattern})`;
+            return `- **${r.action}** \`${spec}\``;
+          });
+          await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${lines.join('\n')}`, { threadRootId: threadRoot });
+        }
+        break;
+      }
+      case 'remember_clear': {
+        const spec = cmdResult.payload as string | undefined;
+        if (!spec) {
+          clearPermissionRules(msg.channelId);
+          await adapter.sendMessage(msg.channelId, '🗑️ All permission rules cleared for this channel.', { threadRootId: threadRoot });
+        } else {
+          // Parse spec like "shell(git)" → tool="shell", pattern="git"; or "shell" → tool="shell", pattern="*"
+          const match = spec.match(/^([^(]+?)(?:\((.+)\))?$/);
+          const tool = match?.[1]?.trim() ?? spec;
+          const pattern = match?.[2]?.trim() ?? '*';
+          const removed = removePermissionRule(msg.channelId, tool, pattern);
+          if (removed) {
+            await adapter.sendMessage(msg.channelId, `🗑️ Removed rule: \`${spec}\``, { threadRootId: threadRoot });
+          } else {
+            await adapter.sendMessage(msg.channelId, `⚠️ No matching rule found for \`${spec}\``, { threadRootId: threadRoot });
+          }
+        }
+        break;
+      }
     }
     return;
   }
