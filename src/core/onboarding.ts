@@ -33,6 +33,10 @@ export interface OnboardProjectOpts {
   repoUrl?: string;
   /** User ID to add to the channel */
   userId?: string;
+  /** Trigger mode (default: from config defaults) */
+  triggerMode?: 'mention' | 'all';
+  /** Threaded replies (default: from config defaults) */
+  threadedReplies?: boolean;
 }
 
 export interface OnboardResult {
@@ -183,6 +187,9 @@ export async function onboardProject(
   }
 
   // 7. Register dynamic channel
+  const triggerMode = opts.triggerMode ?? config.defaults.triggerMode;
+  const threadedReplies = opts.threadedReplies ?? config.defaults.threadedReplies;
+
   addDynamicChannel({
     channelId,
     platform: opts.platform,
@@ -190,6 +197,8 @@ export async function onboardProject(
     bot: opts.botName,
     workingDirectory: workspacePath,
     isDM: false,
+    triggerMode,
+    threadedReplies,
   });
 
   // Also register in-memory so it's immediately available
@@ -199,8 +208,8 @@ export async function onboardProject(
     name: channelName,
     bot: opts.botName,
     workingDirectory: workspacePath,
-    triggerMode: config.defaults.triggerMode,
-    threadedReplies: config.defaults.threadedReplies,
+    triggerMode,
+    threadedReplies,
     verbose: config.defaults.verbose,
   } as ChannelConfig);
 

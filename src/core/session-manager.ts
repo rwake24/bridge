@@ -902,6 +902,8 @@ export class SessionManager {
             workspace_path: { type: 'string', description: 'Custom workspace directory path. If omitted, defaults to ~/.copilot-bridge/workspaces/<project-slug>/.' },
             repo_url: { type: 'string', description: 'Git repository URL to clone into the workspace. Optional — skip for new projects.' },
             user_id: { type: 'string', description: 'Mattermost user ID of the requesting user, to add them to the channel.' },
+            trigger_mode: { type: 'string', description: 'How the bot responds: "all" (every message), "mention" (only when @mentioned or in DMs). Default from platform config.' },
+            threaded_replies: { type: 'boolean', description: 'Whether the bot replies in threads. Default from platform config.' },
           },
           required: ['project_name', 'bot_name', 'team_id'],
         },
@@ -913,6 +915,8 @@ export class SessionManager {
           workspace_path?: string;
           repo_url?: string;
           user_id?: string;
+          trigger_mode?: string;
+          threaded_replies?: boolean;
         }) => {
           try {
             const adapter = adapterResolver(channelId);
@@ -927,6 +931,8 @@ export class SessionManager {
               workspacePath: args.workspace_path,
               repoUrl: args.repo_url,
               userId: args.user_id ?? this.lastMessageUserIds.get(channelId),
+              triggerMode: args.trigger_mode === 'all' || args.trigger_mode === 'mention' ? args.trigger_mode : undefined,
+              threadedReplies: args.threaded_replies,
             });
 
             return {

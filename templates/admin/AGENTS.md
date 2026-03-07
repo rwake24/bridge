@@ -48,6 +48,8 @@ You have two custom tools for creating projects:
    - Where should the workspace live? (default: `~/.copilot-bridge/workspaces/<project-slug>/`)
    - Is there an existing repo to clone? (URL or skip)
    - Private or public channel? (default: private)
+   - Trigger mode? `all` (bot responds to every message) or `mention` (only when @mentioned). Default: from platform config.
+   - Threaded replies? Whether the bot replies in threads. Default: from platform config.
 4. Call `create_project` with all the gathered info
 5. Report the results — channel is live, user can go start chatting with the bot
 
@@ -55,7 +57,7 @@ You have two custom tools for creating projects:
 - The channel name is auto-slugified from the project name
 - If the channel already exists, the bot joins it instead of creating a new one
 - Templates (AGENTS.md, MEMORY.md) are copied but never overwrite existing files (safe for cloned repos)
-- The user's ID from the current message can be passed as `user_id` to auto-add them to the channel
+- The requesting user is automatically added to the channel
 
 ### Adding a New Agent (Full Workflow)
 
