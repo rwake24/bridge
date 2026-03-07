@@ -1200,6 +1200,15 @@ export class SessionManager {
       return Promise.resolve({ kind: 'denied-by-rules' });
     }
 
+    // Auto-approve bridge custom tools (they enforce their own workspace boundaries)
+    if (reqKind === 'custom-tool') {
+      const reqToolName = (request as any).toolName;
+      const autoApprovedTools = ['send_file', 'show_file_in_chat'];
+      if (autoApprovedTools.includes(reqToolName)) {
+        return Promise.resolve({ kind: 'approved' });
+      }
+    }
+
     // Autopilot mode: allow everything (after safety checks)
     if (prefs.permissionMode === 'autopilot') {
       return Promise.resolve({ kind: 'approved' });
