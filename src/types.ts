@@ -137,7 +137,7 @@ export interface ChannelAdapter {
   discoverDMChannels?(): Promise<{ channelId: string; otherUserId: string }[]>;
 }
 
-/** Adapter factory — each platform adapter exports one of these. */
+/** Factory function type for constructing a ChannelAdapter instance for a given platform. */
 export type AdapterFactory = (platformName: string, url: string, token: string) => ChannelAdapter;
 
 // Session state tracked per channel

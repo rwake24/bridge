@@ -226,7 +226,7 @@ async function main(): Promise<void> {
     log.info(`${key} connected`);
 
     // Discover existing DM channels and auto-register any that aren't configured
-    if (adapter.discoverDMChannels) {
+    if (typeof adapter.discoverDMChannels === 'function') {
       const dmChannels = await adapter.discoverDMChannels();
       let registered = 0;
       for (const dm of dmChannels) {
