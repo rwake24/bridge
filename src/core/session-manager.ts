@@ -8,9 +8,9 @@ import {
   getWorkspaceOverride,
   type ChannelPrefs,
 } from '../state/store.js';
-import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig, getPlatformBots } from '../config.js';
+import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
-import { onboardProject, slugify } from './onboarding.js';
+import { onboardProject } from './onboarding.js';
 import { createLogger } from '../logger.js';
 import type { McpServerInfo } from './command-handler.js';
 import type {
@@ -297,8 +297,6 @@ export class SessionManager {
   private lastMessageUserIds = new Map<string, string>(); // channelId → userId of last message sender
   // Handler for send_file tool (set by index.ts, calls adapter.sendFile)
   private sendFileHandler: ((channelId: string, filePath: string, message?: string) => Promise<string>) | null = null;
-  // Handler for onboarding tools (set by index.ts, calls adapter admin methods)
-  private onboardHandler: ((channelId: string, adapter: ChannelAdapter) => ChannelAdapter) | null = null;
   private getAdapterForChannel: ((channelId: string) => ChannelAdapter | null) | null = null;
 
   constructor(bridge: CopilotBridge) {
@@ -409,6 +407,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.lastMessageUserIds.delete(channelId);
     }
     clearChannelSession(channelId);
     return this.createNewSession(channelId);
@@ -429,6 +428,7 @@ export class SessionManager {
 
     // Re-attach the same session (re-reads workspace config, AGENTS.md, MCP, etc.)
     this.contextUsage.delete(channelId);
+      this.lastMessageUserIds.delete(channelId);
     try {
       await this.attachSession(channelId, existingId);
       log.info(`Reloaded session ${existingId} for channel ${channelId}`);
@@ -439,6 +439,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.lastMessageUserIds.delete(channelId);
       clearChannelSession(channelId);
       return this.createNewSession(channelId);
     }
@@ -460,6 +461,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.lastMessageUserIds.delete(channelId);
     }
 
     // If target session is active on another channel, release it first

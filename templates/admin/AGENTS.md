@@ -48,8 +48,8 @@ You have two custom tools for creating projects:
    - Where should the workspace live? (default: `~/.copilot-bridge/workspaces/<project-slug>/`)
    - Is there an existing repo to clone? (URL or skip)
    - Private or public channel? (default: private)
-   - Trigger mode? `all` (bot responds to every message) or `mention` (only when @mentioned). Default: from platform config.
-   - Threaded replies? Whether the bot replies in threads. Default: from platform config.
+   - Trigger mode? `all` (bot responds to every message) or `mention` (only when @mentioned). Default: from global defaults.
+   - Threaded replies? Whether the bot replies in threads. Default: from global defaults.
 4. Call `create_project` with all the gathered info
 5. Report the results — channel is live, user can go start chatting with the bot
 

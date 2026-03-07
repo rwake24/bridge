@@ -67,6 +67,7 @@ export async function onboardProject(
 ): Promise<OnboardResult> {
   const steps: string[] = [];
   const slug = slugify(opts.projectName);
+  if (!slug) throw new Error('Project name must contain at least one alphanumeric character');
   const isPrivate = opts.private !== false;
   const config = getConfig();
 
@@ -139,7 +140,11 @@ export async function onboardProject(
     process.env.HOME ?? '/tmp',
     '.copilot-bridge', 'workspaces', slug,
   );
-  const workspacePath = opts.workspacePath ?? defaultWorkspace;
+  let workspacePath = opts.workspacePath ?? defaultWorkspace;
+  // Expand ~ to home directory (Node fs APIs don't expand tilde)
+  if (workspacePath.startsWith('~/')) {
+    workspacePath = path.join(process.env.HOME ?? '/tmp', workspacePath.slice(2));
+  }
 
   // 5. Clone repo if provided (before template overlay)
   let cloned = false;
