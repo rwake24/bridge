@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules, reloadConfig, ConfigWatcher } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
@@ -128,6 +128,28 @@ async function main(): Promise<void> {
   // Load configuration
   const config = loadConfig();
   log.info(`Loaded ${config.channels.length} channel mapping(s)`);
+
+  // Start config file watcher for hot-reload
+  const configWatcher = new ConfigWatcher();
+  configWatcher.onReload((result) => {
+    if (!result.success) return;
+    if (result.restartNeeded.length > 0) {
+      // Notify admin channels about restart-needed changes
+      for (const [key, adapter] of botAdapters) {
+        const botName = key.slice(key.indexOf(':') + 1);
+        if (isBotAdmin(key.slice(0, key.indexOf(':')), botName)) {
+          for (const ch of getConfig().channels) {
+            if (ch.bot === botName && !ch.isDM) {
+              const warnings = result.restartNeeded.map(r => `  ⚠️ ${r}`).join('\n');
+              adapter.sendMessage(ch.id, `**Config reloaded** with changes that need a restart:\n${warnings}`).catch(() => {});
+              break; // one admin channel is enough
+            }
+          }
+        }
+      }
+    }
+  });
+  configWatcher.start();
 
   // Initialize Copilot SDK bridge
   const bridge = new CopilotBridge();
@@ -265,6 +287,7 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = async () => {
     log.info('Shutting down...');
+    configWatcher.stop();
     workspaceWatcher.stop();
     await sessionManager.shutdown();
     for (const [, adapter] of botAdapters) {
@@ -414,6 +437,28 @@ async function handleInboundMessage(
         await finalizeActivityFeed(msg.channelId, adapter);
         await sessionManager.abortSession(msg.channelId);
         await adapter.sendMessage(msg.channelId, '🛑 Task stopped.', { threadRootId: threadRoot });
+        break;
+      }
+      case 'reload_config': {
+        const result = reloadConfig();
+        let response: string;
+        if (!result.success) {
+          response = `❌ Config reload failed: ${result.error}\nExisting config is unchanged.`;
+        } else if (result.changes.length === 0 && result.restartNeeded.length === 0) {
+          response = '✅ Config reloaded — no changes detected.';
+        } else {
+          const parts: string[] = ['✅ Config reloaded.'];
+          if (result.changes.length > 0) {
+            parts.push('**Applied:**');
+            for (const c of result.changes) parts.push(`  ✓ ${c}`);
+          }
+          if (result.restartNeeded.length > 0) {
+            parts.push('**Restart needed:**');
+            for (const r of result.restartNeeded) parts.push(`  ⚠️ ${r}`);
+          }
+          response = parts.join('\n');
+        }
+        await adapter.sendMessage(msg.channelId, response, { threadRootId: threadRoot });
         break;
       }
       case 'reload_session': {

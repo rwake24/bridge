@@ -8,6 +8,26 @@ copilot-bridge is configured via a JSON file. The bridge checks these locations 
 
 See [`config.sample.json`](../config.sample.json) for the full format.
 
+## Hot Reload
+
+The bridge watches `config.json` for changes and hot-applies safe settings automatically — no restart needed for most edits.
+
+**Hot-reloadable (applied immediately):**
+- Channel settings: `triggerMode`, `threadedReplies`, `verbose`, `model`, `agent`
+- Defaults: `model`, `agent`, `triggerMode`, `threadedReplies`, `verbose`, `permissionMode`
+- Permissions: `allow`, `deny`, `allowPaths`, `allowUrls`
+- Bot config: `agent`, `admin` flag
+- New channel entries
+
+**Restart required (config updates but adapters keep old values):**
+- Platform `url` changes (adapter caches URL at construction)
+- Bot `token` changes (adapter caches token at construction)
+- Adding/removing platforms or bots (needs new adapter + WebSocket connection)
+
+On reload failure (invalid JSON, validation errors), the existing config is preserved. The bridge logs what changed and warns about restart-needed fields.
+
+**Manual reload:** Use `/reload config` to trigger a reload without waiting for the file watcher. This shows exactly what changed.
+
 ## Platforms
 
 Define your messaging platform connections and bot identities:

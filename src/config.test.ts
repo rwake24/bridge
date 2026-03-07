@@ -183,3 +183,340 @@ describe('isHardDeny', () => {
     });
   });
 });
+
+// --- reloadConfig tests ---
+
+import { loadConfig, reloadConfig, getConfig, getConfigPath, registerDynamicChannel, markChannelAsDM, _resetConfigForTest } from './config.js';
+import { describe as d2, it as it2, expect as expect2, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+function makeConfig(overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    platforms: {
+      mattermost: {
+        url: 'http://localhost:8065',
+        bots: { copilot: { token: 'test-token-123' } },
+      },
+    },
+    channels: [
+      {
+        id: 'ch1',
+        platform: 'mattermost',
+        bot: 'copilot',
+        name: 'test',
+        workingDirectory: os.tmpdir(),
+        triggerMode: 'all',
+        threadedReplies: false,
+        verbose: false,
+      },
+    ],
+    defaults: { model: 'claude-sonnet-4.6', triggerMode: 'mention' },
+    ...overrides,
+  };
+}
+
+describe('reloadConfig', () => {
+  let tmpDir: string;
+  let configFile: string;
+
+  beforeEach(() => {
+    _resetConfigForTest();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-reload-test-'));
+    configFile = path.join(tmpDir, 'config.json');
+  });
+
+  afterEach(() => {
+    _resetConfigForTest();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('successfully reloads a valid config', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    // Change triggerMode
+    const updated = makeConfig({ defaults: { model: 'claude-sonnet-4.6', triggerMode: 'all' } });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.length).toBeGreaterThan(0);
+    expect(result.changes.some(c => c.includes('triggerMode'))).toBe(true);
+    expect(getConfig().defaults.triggerMode).toBe('all');
+  });
+
+  it('rejects invalid JSON and keeps existing config', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    fs.writeFileSync(configFile, '{ invalid json !!!');
+
+    const result = reloadConfig();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Failed to read config/);
+    // Original config preserved
+    expect(getConfig().defaults.triggerMode).toBe('mention');
+  });
+
+  it('rejects validation errors and keeps existing config', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    // Write config with missing platform URL
+    const bad = makeConfig();
+    bad.platforms.mattermost.url = '';
+    fs.writeFileSync(configFile, JSON.stringify(bad));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Validation failed/);
+    expect(getConfig().platforms.mattermost.url).toBe('http://localhost:8065');
+  });
+
+  it('returns empty changes for identical config', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes).toEqual([]);
+    expect(result.restartNeeded).toEqual([]);
+  });
+
+  it('detects permission changes', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig({ permissions: { allow: ['shell(ls)'], deny: ['shell(rm)'] } });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes).toContain('permissions updated');
+  });
+
+  it('detects channel field changes', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.channels[0].verbose = true;
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.some(c => c.includes('ch1') && c.includes('verbose'))).toBe(true);
+  });
+
+  it('detects new channel additions', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.channels.push({
+      id: 'ch2', platform: 'mattermost', bot: 'copilot',
+      name: 'new', workingDirectory: os.tmpdir(),
+      triggerMode: 'all', threadedReplies: false, verbose: false,
+    });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.some(c => c.includes('ch2') && c.includes('added'))).toBe(true);
+  });
+
+  // --- Restart-needed detection ---
+
+  it('flags platform URL change as restart-needed', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.platforms.mattermost.url = 'http://other:8065';
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.restartNeeded.some(r => r.includes('URL changed'))).toBe(true);
+  });
+
+  it('flags bot token change as restart-needed', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.platforms.mattermost.bots.copilot.token = 'new-token';
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.restartNeeded.some(r => r.includes('token changed'))).toBe(true);
+  });
+
+  it('flags new bot as restart-needed', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.platforms.mattermost.bots.alice = { token: 'alice-token' };
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.restartNeeded.some(r => r.includes('alice') && r.includes('added'))).toBe(true);
+  });
+
+  it('flags new platform as restart-needed', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.platforms.discord = { url: 'http://discord', bots: { bot1: { token: 't' } } };
+    // Need a channel for the new platform to pass validation
+    updated.channels.push({
+      id: 'dch1', platform: 'discord', bot: 'bot1',
+      name: 'disc', workingDirectory: os.tmpdir(),
+      triggerMode: 'all', threadedReplies: false, verbose: false,
+    });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.restartNeeded.some(r => r.includes('discord') && r.includes('added'))).toBe(true);
+  });
+
+  // --- Dynamic channel preservation (Risk #1) ---
+
+  it('preserves dynamic channels across reload', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    // Register a dynamic DM channel
+    registerDynamicChannel({
+      id: 'dm-123', platform: 'mattermost', bot: 'copilot',
+      name: 'DM', workingDirectory: os.tmpdir(),
+      triggerMode: 'all', threadedReplies: false, verbose: false, isDM: true,
+    });
+
+    // Reload — dynamic channel should survive
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    const channels = getConfig().channels;
+    expect(channels.some(c => c.id === 'dm-123')).toBe(true);
+  });
+
+  it('preserves DM marking across reload', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    registerDynamicChannel({
+      id: 'dm-456', platform: 'mattermost', bot: 'copilot',
+      name: 'DM2', workingDirectory: os.tmpdir(),
+      triggerMode: 'all', threadedReplies: false, verbose: false,
+    });
+    markChannelAsDM('dm-456');
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    const dm = getConfig().channels.find(c => c.id === 'dm-456');
+    expect(dm?.isDM).toBe(true);
+  });
+
+  it('static config wins over dynamic channel on collision', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    // Register dynamic channel with same ID as static
+    registerDynamicChannel({
+      id: 'ch1', platform: 'mattermost', bot: 'copilot',
+      name: 'Dynamic Override', workingDirectory: '/tmp/other',
+      triggerMode: 'all', threadedReplies: false, verbose: false,
+    });
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    // Static config's name should win (ch1 was already in static config, registerDynamicChannel was a no-op)
+    const ch = getConfig().channels.find(c => c.id === 'ch1');
+    expect(ch?.name).toBe('test');
+  });
+
+  // --- Channel removal grace (Risk #5) ---
+
+  it('keeps removed channels in-memory after reload', () => {
+    const cfg = makeConfig();
+    cfg.channels.push({
+      id: 'ch-temp', platform: 'mattermost', bot: 'copilot',
+      name: 'temp', workingDirectory: os.tmpdir(),
+      triggerMode: 'all', threadedReplies: false, verbose: false,
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+
+    // Remove ch-temp from config file
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.some(c => c.includes('ch-temp') && c.includes('removed'))).toBe(true);
+    // But it's still in memory
+    const channels = getConfig().channels;
+    expect(channels.some(c => c.id === 'ch-temp')).toBe(true);
+  });
+
+  // --- Shared validation (Risk #4) ---
+
+  it('loadConfig and reloadConfig reject the same invalid configs', () => {
+    // Write a valid config, load it
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    // Write invalid config (no channels)
+    const bad = makeConfig();
+    bad.channels = [];
+    fs.writeFileSync(configFile, JSON.stringify(bad));
+
+    // reloadConfig should fail with validation error
+    const result = reloadConfig();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Validation failed/);
+
+    // loadConfig should also fail on same input
+    _resetConfigForTest();
+    expect(() => loadConfig(configFile)).toThrow(/at least one channel/);
+  });
+
+  it('loadConfig and reloadConfig produce identical defaults', () => {
+    const cfg = makeConfig();
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+
+    const loaded = loadConfig(configFile);
+    const loadedDefaults = { ...loaded.defaults };
+
+    // Reload same file
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(getConfig().defaults).toEqual(loadedDefaults);
+  });
+
+  it('returns error if loadConfig was never called', () => {
+    const result = reloadConfig();
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/No config path/);
+  });
+
+  it('detects bot config changes (non-token) as hot-reloadable', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig();
+    updated.platforms.mattermost.bots.copilot.admin = true;
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.some(c => c.includes('copilot') && c.includes('config updated'))).toBe(true);
+    expect(result.restartNeeded).toEqual([]);
+  });
+});

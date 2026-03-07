@@ -3,22 +3,19 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig } from './types.js';
 import { getDynamicChannel } from './state/store.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('config');
 
 let _config: AppConfig | null = null;
+let _configPath: string | null = null;
 
-export function loadConfig(configPath?: string): AppConfig {
-  const filePath = configPath
-    ?? process.env.COPILOT_BRIDGE_CONFIG
-    ?? (fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
-        ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
-        : path.join(process.cwd(), 'config.json'));
-  
-  if (!fs.existsSync(filePath)) {
-    throw new Error(`Config file not found: ${filePath}. Copy config.sample.json to config.json and edit it.`);
-  }
-  
-  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  
+// Dynamic channels registered at runtime (DMs, onboarded projects).
+// Kept separate from _config so they survive reloads.
+const _dynamicChannels = new Map<string, ChannelConfig>();
+
+/** Validate raw config JSON and normalize into an AppConfig. Throws on invalid input. */
+function validateAndNormalize(raw: any): AppConfig {
   // Validate platforms
   if (!raw.platforms || typeof raw.platforms !== 'object') {
     throw new Error('Config must have a "platforms" object');
@@ -33,7 +30,7 @@ export function loadConfig(configPath?: string): AppConfig {
       }
     }
   }
-  
+
   // Validate channels
   if (!Array.isArray(raw.channels) || raw.channels.length === 0) {
     throw new Error('Config must have at least one channel');
@@ -45,7 +42,6 @@ export function loadConfig(configPath?: string): AppConfig {
     if (!raw.platforms[ch.platform]) {
       throw new Error(`Channel "${ch.id}" references unknown platform "${ch.platform}"`);
     }
-    // Validate bot reference if multi-bot
     const plat = raw.platforms[ch.platform];
     if (ch.bot && plat.bots && !plat.bots[ch.bot]) {
       throw new Error(`Channel "${ch.id}" references unknown bot "${ch.bot}" (available: ${Object.keys(plat.bots).join(', ')})`);
@@ -54,7 +50,7 @@ export function loadConfig(configPath?: string): AppConfig {
       console.warn(`Warning: workingDirectory "${ch.workingDirectory}" for channel "${ch.id}" does not exist`);
     }
   }
-  
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -65,15 +61,189 @@ export function loadConfig(configPath?: string): AppConfig {
     permissionMode: 'interactive' as const,
     ...raw.defaults,
   };
-  
-  _config = {
+
+  return {
     platforms: raw.platforms,
     channels: raw.channels,
     defaults,
     permissions: raw.permissions,
   };
-  
+}
+
+export function loadConfig(configPath?: string): AppConfig {
+  const filePath = configPath
+    ?? process.env.COPILOT_BRIDGE_CONFIG
+    ?? (fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
+        ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
+        : path.join(process.cwd(), 'config.json'));
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Config file not found: ${filePath}. Copy config.sample.json to config.json and edit it.`);
+  }
+
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  _config = validateAndNormalize(raw);
+  _configPath = filePath;
   return _config;
+}
+
+/** The resolved config file path (available after loadConfig). */
+export function getConfigPath(): string | null {
+  return _configPath;
+}
+
+/** Result of a config reload attempt. */
+export interface ReloadResult {
+  success: boolean;
+  error?: string;
+  changes: string[];
+  restartNeeded: string[];
+}
+
+/**
+ * Diff two config objects and return human-readable change descriptions.
+ * Also flags fields that require a restart to take effect.
+ */
+function diffConfigs(oldCfg: AppConfig, newCfg: AppConfig): { changes: string[]; restartNeeded: string[] } {
+  const changes: string[] = [];
+  const restartNeeded: string[] = [];
+
+  // --- Defaults ---
+  for (const key of Object.keys({ ...oldCfg.defaults, ...newCfg.defaults }) as Array<keyof AppConfig['defaults']>) {
+    const ov = (oldCfg.defaults as any)[key];
+    const nv = (newCfg.defaults as any)[key];
+    if (JSON.stringify(ov) !== JSON.stringify(nv)) {
+      changes.push(`defaults.${key}: ${JSON.stringify(ov)} → ${JSON.stringify(nv)}`);
+    }
+  }
+
+  // --- Permissions ---
+  if (JSON.stringify(oldCfg.permissions ?? {}) !== JSON.stringify(newCfg.permissions ?? {})) {
+    changes.push('permissions updated');
+  }
+
+  // --- Channels ---
+  const oldChannelMap = new Map(oldCfg.channels.filter(c => !_dynamicChannels.has(c.id)).map(c => [c.id, c]));
+  const newChannelMap = new Map(newCfg.channels.map(c => [c.id, c]));
+
+  for (const [id, newCh] of newChannelMap) {
+    const oldCh = oldChannelMap.get(id);
+    if (!oldCh) {
+      changes.push(`channel "${id}": added`);
+    } else if (JSON.stringify(oldCh) !== JSON.stringify(newCh)) {
+      // Identify which fields changed
+      const changedFields: string[] = [];
+      for (const key of new Set([...Object.keys(oldCh), ...Object.keys(newCh)])) {
+        if (JSON.stringify((oldCh as any)[key]) !== JSON.stringify((newCh as any)[key])) {
+          changedFields.push(key);
+        }
+      }
+      changes.push(`channel "${id}": ${changedFields.join(', ')} changed`);
+    }
+  }
+  for (const id of oldChannelMap.keys()) {
+    if (!newChannelMap.has(id)) {
+      changes.push(`channel "${id}": removed from config (still active in-memory)`);
+    }
+  }
+
+  // --- Platforms (check for restart-needed changes) ---
+  for (const [name, newPlat] of Object.entries(newCfg.platforms)) {
+    const oldPlat = oldCfg.platforms[name];
+    if (!oldPlat) {
+      restartNeeded.push(`platform "${name}": added (new adapter + WebSocket needed)`);
+      continue;
+    }
+    if (oldPlat.url !== newPlat.url) {
+      restartNeeded.push(`platform "${name}": URL changed (adapter caches URL at startup)`);
+    }
+    if (oldPlat.botToken !== newPlat.botToken) {
+      restartNeeded.push(`platform "${name}": botToken changed`);
+    }
+    // Check individual bots
+    const oldBots = oldPlat.bots ?? {};
+    const newBots = newPlat.bots ?? {};
+    for (const [bName, newBot] of Object.entries(newBots)) {
+      const oldBot = oldBots[bName];
+      if (!oldBot) {
+        restartNeeded.push(`bot "${name}:${bName}": added (new adapter needed)`);
+      } else if ((oldBot as BotConfig).token !== (newBot as BotConfig).token) {
+        restartNeeded.push(`bot "${name}:${bName}": token changed`);
+      } else {
+        // Non-token bot fields are hot-reloadable (agent, admin)
+        if (JSON.stringify(oldBot) !== JSON.stringify(newBot)) {
+          changes.push(`bot "${name}:${bName}": config updated`);
+        }
+      }
+    }
+    for (const bName of Object.keys(oldBots)) {
+      if (!newBots[bName]) {
+        restartNeeded.push(`bot "${name}:${bName}": removed (adapter still running)`);
+      }
+    }
+  }
+  for (const name of Object.keys(oldCfg.platforms)) {
+    if (!newCfg.platforms[name]) {
+      restartNeeded.push(`platform "${name}": removed (adapter still running)`);
+    }
+  }
+
+  return { changes, restartNeeded };
+}
+
+/**
+ * Re-read config from disk, validate, diff, and apply.
+ * On failure, keeps existing config and returns the error.
+ * Dynamic channels are preserved across reloads.
+ */
+export function reloadConfig(): ReloadResult {
+  if (!_configPath) {
+    return { success: false, error: 'No config path — loadConfig() not called', changes: [], restartNeeded: [] };
+  }
+  if (!_config) {
+    return { success: false, error: 'No existing config to reload', changes: [], restartNeeded: [] };
+  }
+
+  let raw: any;
+  try {
+    const text = fs.readFileSync(_configPath, 'utf-8');
+    raw = JSON.parse(text);
+  } catch (err: any) {
+    return { success: false, error: `Failed to read config: ${err.message}`, changes: [], restartNeeded: [] };
+  }
+
+  let newConfig: AppConfig;
+  try {
+    newConfig = validateAndNormalize(raw);
+  } catch (err: any) {
+    return { success: false, error: `Validation failed: ${err.message}`, changes: [], restartNeeded: [] };
+  }
+
+  const { changes, restartNeeded } = diffConfigs(_config, newConfig);
+
+  // Preserve channels that were removed from config but have no replacement
+  // (grace period: they stay in-memory until sessions end)
+  const removedStaticIds: string[] = [];
+  for (const oldCh of _config.channels) {
+    if (_dynamicChannels.has(oldCh.id)) continue; // dynamic, handled separately
+    if (!newConfig.channels.some(c => c.id === oldCh.id)) {
+      removedStaticIds.push(oldCh.id);
+      newConfig.channels.push(oldCh); // keep in-memory
+    }
+  }
+
+  // Merge dynamic channels back in (prune any now covered by static config)
+  for (const [id, ch] of _dynamicChannels) {
+    if (newConfig.channels.some(c => c.id === id)) {
+      _dynamicChannels.delete(id); // static config now covers this channel
+    } else {
+      newConfig.channels.push(ch);
+    }
+  }
+
+  _config = newConfig;
+
+  return { success: true, changes, restartNeeded };
 }
 
 export function getConfig(): AppConfig {
@@ -134,18 +304,22 @@ export function isConfiguredChannel(channelId: string): boolean {
 /**
  * Dynamically register a channel at runtime (not persisted to config.json).
  * Used for auto-discovered DM channels with bots.
+ * Stored separately from static config so they survive reloads.
  */
 export function registerDynamicChannel(channel: ChannelConfig): void {
   const config = getConfig();
-  if (config.channels.some(c => c.id === channel.id)) return; // already registered
+  if (config.channels.some(c => c.id === channel.id)) return; // already in static config
+  _dynamicChannels.set(channel.id, channel);
   config.channels.push(channel);
 }
 
-/** Mark an existing channel as a DM (mutates the source config object). */
+/** Mark an existing channel as a DM (mutates the source config object and dynamic store). */
 export function markChannelAsDM(channelId: string): void {
   const config = getConfig();
   const channel = config.channels.find(c => c.id === channelId);
   if (channel) channel.isDM = true;
+  const dyn = _dynamicChannels.get(channelId);
+  if (dyn) dyn.isDM = true;
 }
 
 /**
@@ -540,4 +714,94 @@ function matchesRule(
   }
 
   return false;
+}
+
+// --- Config Watcher ---
+
+export type ConfigReloadHandler = (result: ReloadResult) => void;
+
+/**
+ * Watches config.json for changes and triggers hot-reload.
+ * Follows the same pattern as WorkspaceWatcher: fs.watch + debounce.
+ */
+export class ConfigWatcher {
+  private watcher: fs.FSWatcher | null = null;
+  private handlers: ConfigReloadHandler[] = [];
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly debounceMs: number;
+
+  constructor(debounceMs = 500) {
+    this.debounceMs = debounceMs;
+  }
+
+  /** Start watching the config file. */
+  start(): void {
+    const configPath = getConfigPath();
+    if (!configPath) {
+      log.warn('Cannot start ConfigWatcher: no config path (loadConfig not called)');
+      return;
+    }
+    if (this.watcher) return;
+
+    // Watch the parent directory (not the file) because editors do atomic saves
+    // (write temp + rename), which replaces the inode and kills file-level watchers.
+    const dir = path.dirname(configPath);
+    const filename = path.basename(configPath);
+
+    log.info(`Watching ${dir} for changes to ${filename}`);
+    this.watcher = fs.watch(dir, { persistent: false }, (_event, changedFile) => {
+      if (!changedFile || String(changedFile) !== filename) return;
+      if (this.debounceTimer) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => this.handleChange(), this.debounceMs);
+    });
+
+    this.watcher.on('error', (err) => {
+      log.error('ConfigWatcher error:', err);
+    });
+  }
+
+  /** Stop watching. */
+  stop(): void {
+    if (this.watcher) {
+      this.watcher.close();
+      this.watcher = null;
+    }
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+  }
+
+  /** Register a reload event handler. */
+  onReload(handler: ConfigReloadHandler): void {
+    this.handlers.push(handler);
+  }
+
+  private handleChange(): void {
+    const result = reloadConfig();
+    if (result.success) {
+      if (result.changes.length || result.restartNeeded.length) {
+        log.info(`Config reloaded: ${result.changes.length} change(s), ${result.restartNeeded.length} restart-needed`);
+        for (const c of result.changes) log.info(`  ✓ ${c}`);
+        for (const r of result.restartNeeded) log.warn(`  ⚠ ${r}`);
+      } else {
+        log.debug('Config file changed but no effective differences');
+      }
+    } else {
+      log.error(`Config reload failed: ${result.error} — keeping existing config`);
+    }
+    for (const handler of this.handlers) {
+      try { handler(result); } catch (err) { log.error('Reload handler error:', err); }
+    }
+  }
+}
+
+/**
+ * Reset config state — for testing only.
+ * @internal
+ */
+export function _resetConfigForTest(): void {
+  _config = null;
+  _configPath = null;
+  _dynamicChannels.clear();
 }
