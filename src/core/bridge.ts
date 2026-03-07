@@ -154,8 +154,11 @@ export class CopilotBridge {
   async destroySession(id: string): Promise<void> {
     const session = this.sessions.get(id);
     if (session) {
-      await session.disconnect();
-      this.sessions.delete(id);
+      try {
+        await session.disconnect();
+      } finally {
+        this.sessions.delete(id);
+      }
     }
   }
 
