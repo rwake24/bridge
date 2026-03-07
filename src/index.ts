@@ -505,37 +505,48 @@ async function handleInboundMessage(
         }
         break;
       case 'remember':
-        sessionManager.resolvePermission(msg.channelId, true, true);
+        if (!sessionManager.resolvePermission(msg.channelId, true, true)) {
+          await adapter.sendMessage(msg.channelId, '⚠️ No pending permission request.', { threadRootId: threadRoot });
+        }
         break;
       case 'remember_list': {
-        const rules = listPermissionRulesForScope(msg.channelId);
-        if (rules.length === 0) {
-          await adapter.sendMessage(msg.channelId, '📋 No stored permission rules for this channel.', { threadRootId: threadRoot });
-        } else {
-          const lines = rules.map(r => {
-            const spec = r.commandPattern === '*' ? r.tool : `${r.tool}(${r.commandPattern})`;
-            return `- **${r.action}** \`${spec}\``;
-          });
-          await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${lines.join('\n')}`, { threadRootId: threadRoot });
+        try {
+          const rules = listPermissionRulesForScope(msg.channelId);
+          if (rules.length === 0) {
+            await adapter.sendMessage(msg.channelId, '📋 No stored permission rules for this channel.', { threadRootId: threadRoot });
+          } else {
+            const lines = rules.map(r => {
+              const spec = r.commandPattern === '*' ? r.tool : `${r.tool}(${r.commandPattern})`;
+              return `- **${r.action}** \`${spec}\``;
+            });
+            await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${lines.join('\n')}`, { threadRootId: threadRoot });
+          }
+        } catch (err: any) {
+          log.error('Failed to list permission rules:', err);
+          await adapter.sendMessage(msg.channelId, '❌ Failed to list permission rules.', { threadRootId: threadRoot });
         }
         break;
       }
       case 'remember_clear': {
-        const spec = cmdResult.payload as string | undefined;
-        if (!spec) {
-          clearPermissionRules(msg.channelId);
-          await adapter.sendMessage(msg.channelId, '🗑️ All permission rules cleared for this channel.', { threadRootId: threadRoot });
-        } else {
-          // Parse spec like "shell(git)" → tool="shell", pattern="git"; or "shell" → tool="shell", pattern="*"
-          const match = spec.match(/^([^(]+?)(?:\((.+)\))?$/);
-          const tool = match?.[1]?.trim() ?? spec;
-          const pattern = match?.[2]?.trim() ?? '*';
-          const removed = removePermissionRule(msg.channelId, tool, pattern);
-          if (removed) {
-            await adapter.sendMessage(msg.channelId, `🗑️ Removed rule: \`${spec}\``, { threadRootId: threadRoot });
+        try {
+          const spec = cmdResult.payload as string | undefined;
+          if (!spec) {
+            clearPermissionRules(msg.channelId);
+            await adapter.sendMessage(msg.channelId, '🗑️ All permission rules cleared for this channel.', { threadRootId: threadRoot });
           } else {
-            await adapter.sendMessage(msg.channelId, `⚠️ No matching rule found for \`${spec}\``, { threadRootId: threadRoot });
+            const match = spec.match(/^([^(]+?)(?:\((.+)\))?$/);
+            const tool = match?.[1]?.trim() ?? spec;
+            const pattern = match?.[2]?.trim() ?? '*';
+            const removed = removePermissionRule(msg.channelId, tool, pattern);
+            if (removed) {
+              await adapter.sendMessage(msg.channelId, `🗑️ Removed rule: \`${spec}\``, { threadRootId: threadRoot });
+            } else {
+              await adapter.sendMessage(msg.channelId, `⚠️ No matching rule found for \`${spec}\``, { threadRootId: threadRoot });
+            }
           }
+        } catch (err: any) {
+          log.error('Failed to clear permission rules:', err);
+          await adapter.sendMessage(msg.channelId, '❌ Failed to clear permission rules.', { threadRootId: threadRoot });
         }
         break;
       }

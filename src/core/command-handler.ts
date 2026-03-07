@@ -318,7 +318,7 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
         const spec = parsed.args.trim().slice(5).trim(); // everything after "clear"
         return { handled: true, action: 'remember_clear', payload: spec || undefined };
       }
-      return { handled: true, action: 'remember', response: '💾 Permission rule saved.' };
+      return { handled: true, action: 'remember' };
     }
 
     case 'mcp': {
