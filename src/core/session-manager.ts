@@ -914,7 +914,7 @@ export class SessionManager {
               } catch {
                 content = '(not a git repository or git diff failed)';
               }
-              await adapter.sendMessage(channelId, `**${fileName}** (diff)\n\`\`\`diff\n${content}\n\`\`\``);
+              await adapter.sendMessage(channelId, `**${fileName}** (diff)\n\`\`\`\`diff\n${content}\n\`\`\`\``);
             } else {
               const fullContent = fs.readFileSync(realPath, 'utf-8');
               let lines = fullContent.split('\n');
@@ -934,8 +934,9 @@ export class SessionManager {
                 truncated = true;
               }
 
+              // Use 4-backtick fence to avoid breaking if content contains ```
               const rangeLabel = args.view_range ? ` (lines ${args.view_range[0]}–${args.view_range[1] === -1 ? 'end' : args.view_range[1]})` : '';
-              let msg = `**${fileName}**${rangeLabel}\n\`\`\`${ext}\n${content}\n\`\`\``;
+              let msg = `**${fileName}**${rangeLabel}\n\`\`\`\`${ext}\n${content}\n\`\`\`\``;
               if (truncated) msg += '\n*(truncated — file too large for chat)*';
               await adapter.sendMessage(channelId, msg);
             }

@@ -223,18 +223,20 @@ export function reloadConfig(): ReloadResult {
 
   // Preserve channels that were removed from config but have no replacement
   // (grace period: they stay in-memory until sessions end)
-  const removedStaticIds = new Set<string>();
+  const removedStaticIds: string[] = [];
   for (const oldCh of _config.channels) {
     if (_dynamicChannels.has(oldCh.id)) continue; // dynamic, handled separately
     if (!newConfig.channels.some(c => c.id === oldCh.id)) {
-      removedStaticIds.add(oldCh.id);
+      removedStaticIds.push(oldCh.id);
       newConfig.channels.push(oldCh); // keep in-memory
     }
   }
 
-  // Merge dynamic channels back in
+  // Merge dynamic channels back in (prune any now covered by static config)
   for (const [id, ch] of _dynamicChannels) {
-    if (!newConfig.channels.some(c => c.id === id)) {
+    if (newConfig.channels.some(c => c.id === id)) {
+      _dynamicChannels.delete(id); // static config now covers this channel
+    } else {
       newConfig.channels.push(ch);
     }
   }
@@ -748,7 +750,7 @@ export class ConfigWatcher {
 
     log.info(`Watching ${dir} for changes to ${filename}`);
     this.watcher = fs.watch(dir, { persistent: false }, (_event, changedFile) => {
-      if (changedFile !== filename) return;
+      if (!changedFile || String(changedFile) !== filename) return;
       if (this.debounceTimer) clearTimeout(this.debounceTimer);
       this.debounceTimer = setTimeout(() => this.handleChange(), this.debounceMs);
     });

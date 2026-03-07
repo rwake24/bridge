@@ -19,10 +19,10 @@ The bridge watches `config.json` for changes and hot-applies safe settings autom
 - Bot config: `agent`, `admin` flag
 - New channel entries
 
-**Restart required (warned but not applied):**
-- Platform `url` changes (adapter caches URL at startup)
-- Bot `token` changes (adapter caches token)
-- Adding/removing platforms or bots (needs new adapter + WebSocket)
+**Restart required (config updates but adapters keep old values):**
+- Platform `url` changes (adapter caches URL at construction)
+- Bot `token` changes (adapter caches token at construction)
+- Adding/removing platforms or bots (needs new adapter + WebSocket connection)
 
 On reload failure (invalid JSON, validation errors), the existing config is preserved. The bridge logs what changed and warns about restart-needed fields.
 
