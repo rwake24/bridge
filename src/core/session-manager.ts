@@ -9,7 +9,7 @@ import {
   getWorkspaceOverride, setWorkspaceOverride, listWorkspaceOverrides,
   type ChannelPrefs,
 } from '../state/store.js';
-import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig } from '../config.js';
+import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig, isHardDeny } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { onboardProject } from './onboarding.js';
 import { createLogger } from '../logger.js';
@@ -1100,7 +1100,16 @@ export class SessionManager {
   ): Promise<any> {
     const prefs = this.getEffectivePrefs(channelId);
 
-    // Autopilot mode: allow everything
+    // Hardcoded safety denies — checked before autopilot, cannot be overridden
+    const reqKind = (request as any).kind;
+    const reqCommand = typeof (request as any).fullCommandText === 'string' ? (request as any).fullCommandText
+      : typeof (request as any).command === 'string' ? (request as any).command : undefined;
+    const reqShellCmd = reqCommand ? reqCommand.trim().split(/\s+/)[0] : undefined;
+    if (isHardDeny(reqKind, reqCommand, reqShellCmd)) {
+      return Promise.resolve({ kind: 'denied-by-rules' });
+    }
+
+    // Autopilot mode: allow everything (after safety checks)
     if (prefs.permissionMode === 'autopilot') {
       return Promise.resolve({ kind: 'approved' });
     }
