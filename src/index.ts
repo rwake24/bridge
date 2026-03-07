@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
@@ -511,16 +511,36 @@ async function handleInboundMessage(
         break;
       case 'remember_list': {
         try {
-          const rules = listPermissionRulesForScope(msg.channelId);
-          if (rules.length === 0) {
-            await adapter.sendMessage(msg.channelId, '📋 No stored permission rules for this channel.', { threadRootId: threadRoot });
+          const sections: string[] = [];
+
+          // Hardcoded safety denies
+          const hardcoded = getHardcodedRules();
+          sections.push('**🔒 Hardcoded denies (enforced in all modes including autopilot):**');
+          sections.push(...hardcoded.map(r => `- **${r.action}** \`${r.spec}\``));
+          sections.push('- **allow** `read/write in workspace + allowPaths`');
+
+          // Config-level rules
+          const configRules = getConfigRules();
+          if (configRules.length > 0) {
+            sections.push('\n**⚙️ Config — config.json (skipped in autopilot):**');
+            sections.push(...configRules.map(r => `- **${r.action}** \`${r.spec}\``));
           } else {
-            const lines = rules.map(r => {
+            sections.push('\n**⚙️ Config — config.json (skipped in autopilot):** _(none)_');
+          }
+
+          // Stored rules (per-channel)
+          const stored = listPermissionRulesForScope(msg.channelId);
+          if (stored.length > 0) {
+            sections.push('\n**💾 Stored — this channel (skipped in autopilot):**');
+            sections.push(...stored.map(r => {
               const spec = r.commandPattern === '*' ? r.tool : `${r.tool}(${r.commandPattern})`;
               return `- **${r.action}** \`${spec}\``;
-            });
-            await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${lines.join('\n')}`, { threadRootId: threadRoot });
+            }));
+          } else {
+            sections.push('\n**💾 Stored — this channel (skipped in autopilot):** _(none)_');
           }
+
+          await adapter.sendMessage(msg.channelId, `📋 **Permission rules:**\n${sections.join('\n')}`, { threadRootId: threadRoot });
         } catch (err: any) {
           log.error('Failed to list permission rules:', err);
           await adapter.sendMessage(msg.channelId, '❌ Failed to list permission rules.', { threadRootId: threadRoot });

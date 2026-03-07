@@ -273,6 +273,126 @@ function parsePermissionSpec(spec: string): { kind: string; tool?: string } {
   return { kind: match[1].trim(), tool: match[2]?.trim() };
 }
 
+const SHELL_WRAPPERS = new Set(['bash', 'sh', 'zsh', 'dash', 'fish', 'env', 'sudo', 'nohup', 'xargs', 'exec', 'eval']);
+
+/** Strip shell wrappers, absolute paths, and subshell flags to find the real command. */
+function unwrapShellCommand(cmd: string): string {
+  // Handle bash/sh -c "..." — extract the quoted payload (with optional sudo/env prefix)
+  const dashCMatch = cmd.match(/(?:^|\s)(?:(?:sudo|env)\s+)*(?:bash|sh|zsh|dash)\s+-c\s+["'](.+?)["']\s*$/);
+  if (dashCMatch) {
+    return unwrapShellCommand(dashCMatch[1]);
+  }
+
+  let parts = cmd.trim().split(/\s+/);
+  // Strip wrappers from front (sudo rm -rf / → rm -rf /)
+  while (parts.length > 0) {
+    let word = parts[0];
+    // Strip absolute path prefix: /usr/bin/rm → rm
+    const base = word.includes('/') ? word.split('/').pop()! : word;
+    if (SHELL_WRAPPERS.has(base)) {
+      parts.shift();
+      if (base === 'env') {
+        // Skip env assignments (FOO=bar) and flags
+        while (parts.length > 0 && (parts[0].startsWith('-') || /^[A-Z_]+=/.test(parts[0]))) parts.shift();
+      } else if (base === 'sudo') {
+        // Skip sudo flags and their arguments (-u root, -g group, -C fd, etc.)
+        const sudoFlagsWithArg = new Set(['-u', '-g', '-C', '-D', '-R', '-T', '--user', '--group']);
+        while (parts.length > 0 && parts[0].startsWith('-')) {
+          const flag = parts.shift()!;
+          if (sudoFlagsWithArg.has(flag) && parts.length > 0) parts.shift(); // skip arg
+        }
+      } else {
+        // Generic wrapper: skip flags
+        while (parts.length > 0 && parts[0].startsWith('-')) parts.shift();
+      }
+      continue;
+    }
+    // Rewrite absolute path to basename for the first real command
+    if (word.includes('/')) {
+      parts[0] = base;
+    }
+    break;
+  }
+  return parts.join(' ');
+}
+
+/**
+ * Hardcoded safety denies — cannot be overridden by config or stored rules.
+ * These prevent destructive commands that should never run in any context.
+ */
+export function isHardDeny(kind: string, command: string | undefined, shellCmd: string | undefined): boolean {
+  if (kind !== 'shell' || !command) return false;
+  const cmd = command.trim();
+  // Strip shell wrappers (sudo, env, bash -c, etc.) and absolute paths to find the real command
+  const unwrapped = unwrapShellCommand(cmd);
+  const realCmd = unwrapped.split(/\s+/)[0];
+  // Use unwrapped command for all checks below
+  const effectiveCmd = unwrapped;
+  const effectiveShellCmd = realCmd;
+
+  // Bridge self-harm (check both original and unwrapped)
+  if ((effectiveShellCmd === 'launchctl' || shellCmd === 'launchctl') && /\bunload\b/.test(cmd)) return true;
+
+  // Recursive delete on system/home paths
+  if (effectiveShellCmd === 'rm') {
+    const hasRecursive = /\s-[^\s]*r|\s--recursive/.test(effectiveCmd);
+    const hasForce = /\s-[^\s]*f|\s--force/.test(effectiveCmd);
+    if (hasRecursive && hasForce) {
+      if (/\s+\/(\s|$)/.test(effectiveCmd) || /\s+\/\*(\s|$)/.test(effectiveCmd)) return true;
+      if (/\s+~(\s|$)/.test(effectiveCmd) || /\$HOME(\s|$)/.test(effectiveCmd)) return true;
+    }
+  }
+
+  // Disk formatting and block device writes
+  if (effectiveShellCmd === 'mkfs' || /^mkfs\./.test(effectiveShellCmd)) return true;
+  if (effectiveShellCmd === 'dd' && /of=\/dev\//.test(effectiveCmd)) return true;
+
+  // Fork bomb (check original — wrappers don't change this)
+  if (/:\(\)\s*\{.*:\|:.*&.*\}\s*;?\s*:/.test(cmd)) return true;
+
+  // Recursive permission/ownership nuke on system paths
+  if ((effectiveShellCmd === 'chmod' || effectiveShellCmd === 'chown') && /\s-[^\s]*R/.test(effectiveCmd)) {
+    if (/\s+\/(\s|$)/.test(effectiveCmd) || /\s+\/etc(\s|\/|$)/.test(effectiveCmd) ||
+        /\s+\/usr(\s|\/|$)/.test(effectiveCmd) || /\s+\/var(\s|\/|$)/.test(effectiveCmd) ||
+        /\s+~(\s|$)/.test(effectiveCmd) || /\$HOME(\s|$)/.test(effectiveCmd)) return true;
+  }
+
+  return false;
+}
+
+/** Built-in safety rules surfaced by /remember list. */
+export function getHardcodedRules(): Array<{ spec: string; action: 'allow' | 'deny'; source: 'hardcoded' }> {
+  return [
+    { spec: 'shell(launchctl unload)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(rm -rf /)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(rm -rf ~)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(mkfs)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(dd … of=/dev/*)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(:(){ :|:& };:)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(chmod -R / /etc /usr /var ~)', action: 'deny', source: 'hardcoded' },
+    { spec: 'shell(chown -R / /etc /usr /var ~)', action: 'deny', source: 'hardcoded' },
+  ];
+}
+
+/** Config-level rules surfaced by /remember list. */
+export function getConfigRules(): Array<{ spec: string; action: 'allow' | 'deny'; source: 'config' }> {
+  const config = getConfig();
+  const perms = config.permissions;
+  const rules: Array<{ spec: string; action: 'allow' | 'deny'; source: 'config' }> = [];
+  if (perms?.deny) {
+    for (const spec of perms.deny) rules.push({ spec, action: 'deny', source: 'config' });
+  }
+  if (perms?.allow) {
+    for (const spec of perms.allow) rules.push({ spec, action: 'allow', source: 'config' });
+  }
+  if (perms?.allowPaths) {
+    for (const p of perms.allowPaths) rules.push({ spec: `path: ${p}`, action: 'allow', source: 'config' });
+  }
+  if (perms?.allowUrls) {
+    for (const u of perms.allowUrls) rules.push({ spec: `url: ${u}`, action: 'allow', source: 'config' });
+  }
+  return rules;
+}
 /**
  * Evaluate config-level permission rules against a permission request.
  * Uses CLI-compatible syntax: shell(cmd), write, read, MCP_SERVER(tool), etc.
@@ -287,9 +407,8 @@ export function evaluateConfigPermissions(
 ): 'allow' | 'deny' | null {
   const config = getConfig();
   const perms = config.permissions;
-  if (!perms) return null;
 
-  const kind = request.kind; // "shell", "read", "write", "mcp", "url", "custom-tool"
+  const kind = request.kind;
   const command = typeof request.fullCommandText === 'string' ? request.fullCommandText
     : typeof request.command === 'string' ? request.command : undefined;
   const requestPath = typeof request.path === 'string' ? request.path
@@ -298,9 +417,7 @@ export function evaluateConfigPermissions(
   const toolName = typeof request.toolName === 'string' ? request.toolName : undefined;
   const url = typeof request.url === 'string' ? request.url : undefined;
 
-  // Extract the first command word from shell commands (e.g., "ls -la /tmp" → "ls")
   const shellCmd = command ? command.trim().split(/\s+/)[0] : undefined;
-  // For git/gh, include subcommand: "git push origin main" → "git push"
   const shellCmdFull = command ? (() => {
     const parts = command.trim().split(/\s+/);
     if ((parts[0] === 'git' || parts[0] === 'gh') && parts.length > 1) {
@@ -309,8 +426,13 @@ export function evaluateConfigPermissions(
     return parts[0];
   })() : undefined;
 
-  // Check deny rules first (deny takes precedence, matching CLI behavior)
-  if (perms.deny) {
+  // Hardcoded safety denies — cannot be overridden
+  if (isHardDeny(kind, command, shellCmd)) {
+    return 'deny';
+  }
+
+  // Check config deny rules (deny takes precedence over allow)
+  if (perms?.deny) {
     for (const spec of perms.deny) {
       const parsed = parsePermissionSpec(spec);
       if (matchesRule(parsed, kind, shellCmd, shellCmdFull, command, serverName, toolName)) {
@@ -319,14 +441,8 @@ export function evaluateConfigPermissions(
     }
   }
 
-  // Hard deny: 'launchctl unload' kills the bridge process before load can run.
-  // This must be before allow rules so it can't be overridden by config.
-  if (kind === 'shell' && shellCmd === 'launchctl' && command && /\bunload\b/.test(command)) {
-    return 'deny';
-  }
-
-  // Check allow rules
-  if (perms.allow) {
+  // Check config allow rules
+  if (perms?.allow) {
     for (const spec of perms.allow) {
       const parsed = parsePermissionSpec(spec);
       if (matchesRule(parsed, kind, shellCmd, shellCmdFull, command, serverName, toolName)) {
@@ -360,7 +476,7 @@ export function evaluateConfigPermissions(
       }
     }
     // Check config-level allowPaths
-    if (perms.allowPaths) {
+    if (perms?.allowPaths) {
       for (const p of perms.allowPaths) {
         const allowed = path.resolve(p);
         if (resolved.startsWith(allowed + path.sep) || resolved === allowed) {
@@ -378,7 +494,7 @@ export function evaluateConfigPermissions(
   }
 
   // Check URL permissions
-  if (kind === 'url' && url && perms.allowUrls) {
+  if (kind === 'url' && url && perms?.allowUrls) {
     try {
       const hostname = new URL(url).hostname;
       if (perms.allowUrls.some(d => hostname === d || hostname.endsWith('.' + d))) {

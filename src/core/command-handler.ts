@@ -309,9 +309,11 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       };
     }
 
-    case 'remember': {
+    case 'remember':
+    case 'rule':
+    case 'rules': {
       const sub = parsed.args.trim().toLowerCase();
-      if (sub === 'list') {
+      if (sub === 'list' || (parsed.command !== 'remember' && !sub)) {
         return { handled: true, action: 'remember_list' };
       }
       if (sub === 'clear' || sub.startsWith('clear ')) {
@@ -379,9 +381,9 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '`/approve` — Approve pending permission',
           '`/deny` — Deny pending permission',
           '`/remember` — Approve + save permission rule (during prompt)',
-          '`/remember list` — Show stored permission rules',
-          '`/remember clear` — Clear all permission rules',
-          '`/remember clear <spec>` — Clear a specific rule (e.g., `shell(git)`)',
+          '`/rules` — Show all permission rules (alias: `/remember list`)',
+          '`/rules clear` — Clear all rules (alias: `/remember clear`)',
+          '`/rules clear <spec>` — Clear a specific rule (e.g., `shell(git)`)',
           '`/autopilot` — Toggle auto-approve mode (alias: `/yolo`)',
           '`/streamer-mode [on|off]` — Toggle streamer mode (hides preview/internal models)',
           '`/mcp` — Show MCP servers and their source',

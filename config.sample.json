@@ -58,7 +58,13 @@
     "deny": [
       "shell(rm)",
       "shell(git push)",
-      "shell(git reset)"
+      "shell(git reset)",
+      "shell(shutdown)",
+      "shell(reboot)",
+      "shell(halt)",
+      "shell(systemctl poweroff)",
+      "shell(networksetup)",
+      "shell(diskutil)"
     ],
     "allowPaths": [],
     "allowUrls": [
