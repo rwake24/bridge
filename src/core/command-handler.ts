@@ -38,7 +38,7 @@ export interface ModelInfo {
 export interface CommandResult {
   handled: boolean;
   response?: string;
-  action?: 'new_session' | 'reload_session' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
+  action?: 'new_session' | 'reload_session' | 'reload_config' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
            'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session';
   payload?: any;
 }
@@ -147,6 +147,9 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       return { handled: true, action: 'stop_session', response: '🛑 Stopping current task...' };
 
     case 'reload':
+      if (parsed.args?.trim().toLowerCase() === 'config') {
+        return { handled: true, action: 'reload_config', response: '🔄 Reloading config...' };
+      }
       return { handled: true, action: 'reload_session', response: '🔄 Reloading session...' };
 
     case 'resume': {
@@ -370,7 +373,8 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '**Available Commands**',
           '`/new` — Start a new session',
           '`/stop` — Stop the current task (alias: `/cancel`)',
-          '`/reload` — Reload current session (re-reads AGENTS.md, config)',
+          '`/reload` — Reload current session (re-reads AGENTS.md, workspace config)',
+          '`/reload config` — Hot-reload config.json (applies safe changes, warns on restart-needed)',
           '`/resume [id]` — Resume current session (or a past one by ID)',
           '`/model [name]` — List models or switch model (fuzzy match)',
           '`/agent <name>` — Switch custom agent (empty to deselect)',
