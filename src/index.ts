@@ -291,9 +291,9 @@ async function handleInboundMessage(
   platformName: string,
   botName: string,
 ): Promise<void> {
-  // Ignore messages from any bot we manage (prevents cross-bot loops)
-  for (const [, a] of botAdapters) {
-    if (msg.userId === a.getBotUserId()) return;
+  // Ignore messages from any bot we manage on this platform (prevents cross-bot loops)
+  for (const [key, a] of botAdapters) {
+    if (key.startsWith(`${platformName}:`) && msg.userId === a.getBotUserId()) return;
   }
 
   // Auto-register DM channels for known bots

@@ -1,5 +1,6 @@
 import { CopilotSession, approveAll } from '@github/copilot-sdk';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { CopilotBridge } from './bridge.js';
 import {
@@ -980,6 +981,17 @@ export class SessionManager {
             const workDir = existing?.workingDirectory ?? getWorkspacePath(args.bot_name);
             const currentPaths = existing?.allowPaths ?? [];
             const resolvedPath = path.resolve(args.path);
+
+            // Block sensitive paths
+            const home = os.homedir();
+            const blocked = [home, path.join(home, '.ssh'), path.join(home, '.aws'), path.join(home, '.gnupg'),
+              path.join(home, '.copilot-bridge'), '/etc', '/var', '/usr', '/System', '/private'];
+            for (const b of blocked) {
+              if (resolvedPath === b || b.startsWith(resolvedPath + path.sep)) {
+                return { content: `❌ Refused: "${resolvedPath}" would grant access to sensitive directory "${b}". Grant a more specific subdirectory instead.` };
+              }
+            }
+
             if (currentPaths.includes(resolvedPath)) {
               return { content: `"${args.bot_name}" already has access to ${resolvedPath}.` };
             }
