@@ -291,6 +291,11 @@ async function handleInboundMessage(
   platformName: string,
   botName: string,
 ): Promise<void> {
+  // Ignore messages from any bot we manage on this platform (prevents cross-bot loops)
+  for (const [key, a] of botAdapters) {
+    if (key.startsWith(`${platformName}:`) && msg.userId === a.getBotUserId()) return;
+  }
+
   // Auto-register DM channels for known bots
   if (!isConfiguredChannel(msg.channelId) && msg.isDM) {
     const workspacePath = getWorkspacePath(botName);
@@ -314,6 +319,10 @@ async function handleInboundMessage(
     log.debug(`Ignoring unconfigured channel ${msg.channelId}`);
     return;
   }
+
+  // Only the assigned bot processes messages for this channel (prevents duplicate handling)
+  const assignedBot = getChannelBotName(msg.channelId);
+  if (assignedBot && assignedBot !== botName) return;
 
   const resolved = getAdapterForChannel(msg.channelId);
   if (!resolved) {
@@ -394,6 +403,17 @@ async function handleInboundMessage(
         await finalizeActivityFeed(msg.channelId, adapter);
         await sessionManager.newSession(msg.channelId);
         await adapter.sendMessage(msg.channelId, '✅ New session created.', { threadRootId: threadRoot });
+        break;
+      }
+      case 'stop_session': {
+        const stopStreamKey = activeStreams.get(msg.channelId);
+        if (stopStreamKey) {
+          await streaming.cancelStream(stopStreamKey);
+          activeStreams.delete(msg.channelId);
+        }
+        await finalizeActivityFeed(msg.channelId, adapter);
+        await sessionManager.abortSession(msg.channelId);
+        await adapter.sendMessage(msg.channelId, '🛑 Task stopped.', { threadRootId: threadRoot });
         break;
       }
       case 'reload_session': {

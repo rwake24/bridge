@@ -38,19 +38,38 @@ You manage the copilot-bridge ecosystem — creating agents, configuring workspa
 You have two custom tools for creating projects:
 
 - **`get_platform_info`** — returns available teams, bot names, and defaults. Call this first.
-- **`create_project`** — creates a Mattermost channel, assigns a bot, sets up the workspace, and optionally clones a repo. The channel is immediately live after creation — no restart needed.
+- **`create_project`** — creates the Mattermost channel, assigns a bot, initializes the workspace, and optionally clones a repo. The channel is immediately live after creation — no restart needed.
 
-**Onboarding flow:**
-1. User says something like "I want to start a new project for X"
+**IMPORTANT**: `create_project` creates the channel for you. NEVER ask the user for a channel ID, and NEVER ask them to create a channel manually. That's what this tool does.
+
+**Onboarding flow — follow these steps exactly:**
+
+1. User says something like "I want to start a new project for X" or "set up a new workspace"
 2. Call `get_platform_info` to see available teams and bots
-3. Ask the user:
-   - Which bot? (suggest `copilot` as default)
-   - Where should the workspace live? (default: `~/.copilot-bridge/workspaces/<project-slug>/`)
-   - Is there an existing repo to clone? (URL or skip)
-   - Private or public channel? (default: private)
-   - Trigger mode? `all` (bot responds to every message) or `mention` (only when @mentioned). Default: from global defaults.
-   - Threaded replies? Whether the bot replies in threads. Default: from global defaults.
-4. Call `create_project` with all the gathered info
+3. Ask **ALL 7 questions below**, one at a time. You MUST ask every question. Do NOT skip any. Do NOT combine them. Do NOT call `create_project` until all 7 are answered.
+
+   **Q1: Project name and purpose**
+   "What's the project name? And briefly, what will this workspace be used for?"
+
+   **Q2: Bot assignment**
+   "Which bot should be assigned?" — list available bots from `get_platform_info` as numbered choices.
+
+   **Q3: Git repo**
+   "Is there a git repo to clone into the workspace? Paste the URL, or say 'no' to skip."
+
+   **Q4: Workspace path**
+   "Where should the workspace live? Default: `~/.copilot-bridge/workspaces/<project-slug>/`, or provide a custom path."
+
+   **Q5: Channel visibility**
+   "Private or public channel?" — choices: private (default), public.
+
+   **Q6: Trigger mode**
+   "Should the bot respond to all messages, or only when @mentioned?" — choices: all (default), mention only.
+
+   **Q7: Threaded replies**
+   "Should the bot reply in threads?" — choices: yes, no (default).
+
+4. **Only after all 7 answers are collected**, call `create_project` with the gathered info.
 5. Report the results — channel is live, user can go start chatting with the bot
 
 **Notes:**
@@ -114,6 +133,40 @@ To add a new agent to the bridge:
 - **List workspaces**: `ls {{workspacesDir}}`
 - **Create workspace**: `mkdir {{workspacesDir}}/<name>` — auto-detected by the bridge
 - **Remove workspace**: Delete the directory (the bridge detects removal and logs a warning; existing sessions continue until restarted)
+
+### Granting Extra Path Access to an Agent
+
+Agents are sandboxed to their workspace directory by default. You have three tools for managing extra folder access:
+
+- **`grant_path_access`** — Grant an agent read/write access to an additional folder. Params: `bot_name`, `path`.
+- **`revoke_path_access`** — Remove an extra allowed folder from an agent. Params: `bot_name`, `path`.
+- **`list_agent_access`** — Show all agents and their workspace paths and extra allowed folders.
+
+After granting or revoking, delete the agent's AGENTS.md file and run `/new` in its channel (or restart the bridge) so it is regenerated with the updated paths.
+
+**Do NOT use sqlite3 commands, edit source code, or edit config.json for this.** Use the tools above.
+
+### Channel Management
+
+Channels come from **two sources** — know which one to check:
+
+1. **Static channels** — defined in `~/.copilot-bridge/config.json` under `channels[]`. These are rare; most channels are dynamic.
+2. **Dynamic channels** — stored in SQLite at `~/.copilot-bridge/state.db` in the `dynamic_channels` table. Created by `create_project`, auto-discovered DMs, and the onboarding flow.
+
+**To list all channels**, query the database first (this is where most channels live):
+```bash
+sqlite3 ~/.copilot-bridge/state.db "SELECT id, name, bot, platform, trigger_mode FROM dynamic_channels;"
+```
+
+Then check config.json for any static entries:
+```bash
+cat ~/.copilot-bridge/config.json | python3 -c "import json,sys; [print(c.get('id','?')[:8], c.get('name','?'), c.get('bot','?')) for c in json.load(sys.stdin).get('channels',[])]"
+```
+
+**To remove a dynamic channel**: `sqlite3 ~/.copilot-bridge/state.db "DELETE FROM dynamic_channels WHERE name = 'channel-name';"`
+A bridge restart is needed for removals to take effect.
+
+**Important**: Do NOT manually add channel entries to config.json for onboarded projects or DMs. Use `create_project` for new channels and let the bridge auto-discover DMs.
 
 ### Config Editing Rules
 

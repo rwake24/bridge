@@ -1,11 +1,12 @@
 import { CopilotSession, approveAll } from '@github/copilot-sdk';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { CopilotBridge } from './bridge.js';
 import {
   getChannelSession, setChannelSession, clearChannelSession,
   getChannelPrefs, setChannelPrefs, checkPermission, addPermissionRule,
-  getWorkspaceOverride,
+  getWorkspaceOverride, setWorkspaceOverride, listWorkspaceOverrides,
   type ChannelPrefs,
 } from '../state/store.js';
 import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig } from '../config.js';
@@ -692,6 +693,14 @@ export class SessionManager {
     return this.channelSessions.get(channelId) ?? getChannelSession(channelId) ?? undefined;
   }
 
+  /** Abort the current turn for a channel's session. */
+  async abortSession(channelId: string): Promise<void> {
+    const sessionId = this.channelSessions.get(channelId);
+    if (sessionId) {
+      await this.bridge.abortSession(sessionId);
+    }
+  }
+
   /** Check if channel has a pending user input request. */
   hasPendingUserInput(channelId: string): boolean {
     const queue = this.pendingUserInput.get(channelId);
@@ -900,25 +909,25 @@ export class SessionManager {
             project_name: { type: 'string', description: 'Human-readable project name (e.g., "Widget API"). Will be slugified for the channel name.' },
             bot_name: { type: 'string', description: 'Bot to assign (e.g., "copilot", "bob"). Must be a configured bot name.' },
             team_id: { type: 'string', description: 'Mattermost team ID (from get_platform_info).' },
-            private: { type: 'boolean', description: 'Create a private channel (default: true).' },
-            workspace_path: { type: 'string', description: 'Custom workspace directory path. If omitted, defaults to ~/.copilot-bridge/workspaces/<project-slug>/.' },
+            private: { type: 'boolean', description: 'Create a private channel. Ask the user: private or public?' },
+            workspace_path: { type: 'string', description: 'Workspace directory path. Ask the user — default is ~/.copilot-bridge/workspaces/<project-slug>/.' },
             repo_url: { type: 'string', description: 'Git repository URL to clone into the workspace. Optional — skip for new projects.' },
             user_id: { type: 'string', description: 'Mattermost user ID of the requesting user, to add them to the channel.' },
-            trigger_mode: { type: 'string', description: 'How the bot responds: "all" (every message), "mention" (only when @mentioned or in DMs). Default from platform config.' },
-            threaded_replies: { type: 'boolean', description: 'Whether the bot replies in threads. Default from platform config.' },
+            trigger_mode: { type: 'string', enum: ['all', 'mention'], description: 'How the bot responds. Ask the user: "all" (every message) or "mention" (only when @mentioned).' },
+            threaded_replies: { type: 'boolean', description: 'Whether the bot replies in threads. Ask the user: yes or no.' },
           },
-          required: ['project_name', 'bot_name', 'team_id'],
+          required: ['project_name', 'bot_name', 'team_id', 'private', 'workspace_path', 'trigger_mode', 'threaded_replies'],
         },
         handler: async (args: {
           project_name: string;
           bot_name: string;
           team_id: string;
-          private?: boolean;
-          workspace_path?: string;
+          private: boolean;
+          workspace_path: string;
           repo_url?: string;
           user_id?: string;
-          trigger_mode?: string;
-          threaded_replies?: boolean;
+          trigger_mode: 'all' | 'mention';
+          threaded_replies: boolean;
         }) => {
           try {
             const adapter = adapterResolver(channelId);
@@ -933,7 +942,7 @@ export class SessionManager {
               workspacePath: args.workspace_path,
               repoUrl: args.repo_url,
               userId: args.user_id ?? this.lastMessageUserIds.get(channelId),
-              triggerMode: args.trigger_mode === 'all' || args.trigger_mode === 'mention' ? args.trigger_mode : undefined,
+              triggerMode: args.trigger_mode,
               threadedReplies: args.threaded_replies,
             });
 
@@ -950,6 +959,116 @@ export class SessionManager {
           } catch (err: any) {
             log.error(`create_project failed:`, err);
             return { content: `Failed to create project: ${err?.message ?? 'unknown error'}` };
+          }
+        },
+      });
+
+      // Tool: grant_path_access — add an extra allowed path for an agent
+      tools.push({
+        name: 'grant_path_access',
+        description: 'Grant an agent read/write access to an additional folder beyond its workspace. Updates the workspace_overrides table in SQLite.',
+        parameters: {
+          type: 'object',
+          properties: {
+            bot_name: { type: 'string', description: 'The bot/agent name (e.g., "inbox", "bob").' },
+            path: { type: 'string', description: 'Absolute path to the folder to grant access to.' },
+          },
+          required: ['bot_name', 'path'],
+        },
+        handler: async (args: { bot_name: string; path: string }) => {
+          try {
+            const existing = getWorkspaceOverride(args.bot_name);
+            const workDir = existing?.workingDirectory ?? getWorkspacePath(args.bot_name);
+            const currentPaths = existing?.allowPaths ?? [];
+            const resolvedPath = path.resolve(args.path);
+
+            // Block sensitive paths (bidirectional: parent-of or child-of blocked)
+            const home = os.homedir();
+            const blocked = [home, path.join(home, '.ssh'), path.join(home, '.aws'), path.join(home, '.gnupg'),
+              path.join(home, '.copilot-bridge'), '/etc', '/var', '/usr', '/System', '/private'];
+            if (resolvedPath === '/') {
+              return { content: '❌ Refused: cannot grant access to filesystem root.' };
+            }
+            for (const b of blocked) {
+              if (resolvedPath === b || b.startsWith(resolvedPath + path.sep) || resolvedPath.startsWith(b + path.sep)) {
+                return { content: `❌ Refused: "${resolvedPath}" overlaps with sensitive directory "${b}". Grant a more specific, non-sensitive subdirectory instead.` };
+              }
+            }
+
+            if (currentPaths.includes(resolvedPath)) {
+              return { content: `"${args.bot_name}" already has access to ${resolvedPath}.` };
+            }
+            const newPaths = [...currentPaths, resolvedPath];
+            setWorkspaceOverride(args.bot_name, workDir, newPaths);
+            return {
+              content: `✅ Granted "${args.bot_name}" access to ${resolvedPath}.\nCurrent allowed paths: ${JSON.stringify(newPaths)}\n\nTo apply: delete the agent's AGENTS.md and run /new in its channel (or restart the bridge).`,
+            };
+          } catch (err: any) {
+            return { content: `Failed: ${err?.message ?? 'unknown error'}` };
+          }
+        },
+      });
+
+      // Tool: revoke_path_access — remove an allowed path from an agent
+      tools.push({
+        name: 'revoke_path_access',
+        description: 'Remove an extra allowed folder from an agent. Does not affect its workspace directory.',
+        parameters: {
+          type: 'object',
+          properties: {
+            bot_name: { type: 'string', description: 'The bot/agent name.' },
+            path: { type: 'string', description: 'Absolute path to revoke access from.' },
+          },
+          required: ['bot_name', 'path'],
+        },
+        handler: async (args: { bot_name: string; path: string }) => {
+          try {
+            const existing = getWorkspaceOverride(args.bot_name);
+            if (!existing) return { content: `No workspace override found for "${args.bot_name}".` };
+            const resolvedPath = path.resolve(args.path);
+            const newPaths = existing.allowPaths.filter(p => path.resolve(p) !== resolvedPath);
+            setWorkspaceOverride(args.bot_name, existing.workingDirectory, newPaths);
+            return {
+              content: `✅ Revoked "${args.bot_name}" access to ${resolvedPath}.\nRemaining allowed paths: ${JSON.stringify(newPaths)}\n\nTo apply: delete the agent's AGENTS.md and run /new in its channel (or restart the bridge).`,
+            };
+          } catch (err: any) {
+            return { content: `Failed: ${err?.message ?? 'unknown error'}` };
+          }
+        },
+      });
+
+      // Tool: list_agent_access — show workspace info for all agents
+      tools.push({
+        name: 'list_agent_access',
+        description: 'List all agents and their workspace paths and extra allowed folders.',
+        parameters: { type: 'object', properties: {} },
+        handler: async () => {
+          try {
+            const overrides = listWorkspaceOverrides();
+            const overrideMap = new Map(overrides.map(o => [o.botName, o]));
+
+            // Enumerate all configured bots across platforms
+            const config = getConfig();
+            const botNames = new Set<string>();
+            for (const platform of Object.values(config.platforms)) {
+              if (platform.bots) {
+                for (const name of Object.keys(platform.bots)) botNames.add(name);
+              }
+            }
+            // Include any bots that have overrides but aren't in config
+            for (const o of overrides) botNames.add(o.botName);
+
+            if (botNames.size === 0) return { content: 'No agents configured.' };
+
+            const lines = [...botNames].sort().map(name => {
+              const override = overrideMap.get(name);
+              const workspace = override?.workingDirectory ?? getWorkspacePath(name);
+              const extra = override?.allowPaths ?? [];
+              return `**${name}**\n  Workspace: ${workspace}\n  Extra paths: ${extra.length > 0 ? extra.join(', ') : '(none)'}`;
+            });
+            return { content: lines.join('\n\n') };
+          } catch (err: any) {
+            return { content: `Failed: ${err?.message ?? 'unknown error'}` };
           }
         },
       });
