@@ -129,6 +129,21 @@ function getDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS agent_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      caller_bot TEXT NOT NULL,
+      target_bot TEXT NOT NULL,
+      target_agent TEXT,
+      message_summary TEXT,
+      response_summary TEXT,
+      duration_ms INTEGER,
+      success INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      chain_id TEXT,
+      depth INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: ensure channel_prefs columns are nullable (fixes NOT NULL constraints from older schema)
@@ -470,6 +485,61 @@ function mapDynamicChannelRow(row: any): DynamicChannel {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+// --- Agent Calls (inter-agent audit trail) ---
+
+export interface AgentCallRecord {
+  callerBot: string;
+  targetBot: string;
+  targetAgent?: string;
+  messageSummary?: string;
+  responseSummary?: string;
+  durationMs?: number;
+  success: boolean;
+  error?: string;
+  chainId?: string;
+  depth?: number;
+}
+
+export function recordAgentCall(record: AgentCallRecord): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO agent_calls (caller_bot, target_bot, target_agent, message_summary, response_summary, duration_ms, success, error, chain_id, depth)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    record.callerBot,
+    record.targetBot,
+    record.targetAgent ?? null,
+    record.messageSummary ?? null,
+    record.responseSummary ?? null,
+    record.durationMs ?? null,
+    record.success ? 1 : 0,
+    record.error ?? null,
+    record.chainId ?? null,
+    record.depth ?? 0,
+  );
+}
+
+export function getRecentAgentCalls(limit: number = 20): Array<AgentCallRecord & { id: number; createdAt: string }> {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT * FROM agent_calls ORDER BY created_at DESC LIMIT ?'
+  ).all(limit) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    callerBot: r.caller_bot,
+    targetBot: r.target_bot,
+    targetAgent: r.target_agent ?? undefined,
+    messageSummary: r.message_summary ?? undefined,
+    responseSummary: r.response_summary ?? undefined,
+    durationMs: r.duration_ms ?? undefined,
+    success: !!r.success,
+    error: r.error ?? undefined,
+    chainId: r.chain_id ?? undefined,
+    depth: r.depth ?? 0,
+    createdAt: r.created_at,
+  }));
 }
 
 // --- Cleanup ---

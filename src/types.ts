@@ -49,6 +49,21 @@ export interface AppConfig {
     permissionMode: 'interactive' | 'autopilot';
   };
   permissions?: PermissionsConfig;
+  interAgent?: InterAgentConfig;
+}
+
+// Inter-agent communication config
+export interface InterAgentConfig {
+  enabled: boolean;
+  defaultTimeout?: number;   // seconds (default: 60)
+  maxTimeout?: number;       // seconds (default: 300)
+  maxDepth?: number;         // max call chain depth (default: 3)
+  allow?: Record<string, InterAgentPermission>;
+}
+
+export interface InterAgentPermission {
+  canCall?: string[];       // bot names this bot can call ("*" for any)
+  canBeCalledBy?: string[]; // bot names that can call this bot ("*" for any)
 }
 
 // Inbound message from any platform

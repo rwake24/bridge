@@ -176,3 +176,85 @@ Config-level permission rules use Copilot CLI-compatible syntax:
 Use `/autopilot` (or `/yolo`) in chat to auto-approve everything for a channel (useful during active development). Hardcoded safety denies still apply.
 
 Use `/rules` to see all permission rules (hardcoded, config, and stored).
+
+## Inter-Agent Communication
+
+The `ask_agent` tool allows bots to communicate with each other. When enabled, any agent can ask another agent a question by creating a fresh ephemeral session for the target bot.
+
+**Disabled by default.** Add `interAgent` to your config to enable:
+
+```json
+{
+  "interAgent": {
+    "enabled": true,
+    "defaultTimeout": 60,
+    "maxTimeout": 300,
+    "maxDepth": 3,
+    "allow": {
+      "max": { "canCall": ["alice"], "canBeCalledBy": ["alice"] },
+      "alice": { "canCall": ["max"], "canBeCalledBy": ["max"] },
+      "summarizer": { "canCall": [], "canBeCalledBy": ["*"] }
+    }
+  }
+}
+```
+
+### Config Options
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `false` | Master switch for inter-agent communication |
+| `defaultTimeout` | `60` | Default timeout in seconds for ephemeral calls |
+| `maxTimeout` | `300` | Maximum timeout the calling agent can request |
+| `maxDepth` | `3` | Maximum call chain depth (A→B→C = depth 2) |
+| `allow` | — | Per-bot allowlist: `canCall` and `canBeCalledBy` arrays. Use `"*"` for any bot. |
+
+### How It Works
+
+1. Agent Max calls `ask_agent({ target: "alice", message: "What's the thermostat set to?" })`
+2. The bridge validates the allowlist (Max can call Alice, Alice accepts calls from Max)
+3. A fresh ephemeral session is created using Alice's workspace, AGENTS.md, MCP servers, and skills
+4. The target session receives a system prompt listing all of Alice's project workspaces (workspace awareness)
+5. Alice's session processes the message and returns the response as tool output to Max
+6. The ephemeral session is torn down
+
+### Tool Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `target` | ✅ | Bot name to ask (e.g., `"alice"`) |
+| `message` | ✅ | The question or request |
+| `agent` | | Specific `*.agent.md` persona in the target's `agents/` directory |
+| `timeout` | | Timeout in seconds (capped at `maxTimeout`) |
+| `autopilot` | | Auto-approve permissions in the ephemeral session (default: `false`) |
+| `denyTools` | | Tools to deny in the ephemeral session (e.g., `["bash"]`) |
+| `grantTools` | | Tools to pre-approve (only if the caller also has them approved) |
+
+### Custom Agent Definitions
+
+Place `*.agent.md` files in a bot's workspace `agents/` directory:
+```
+~/.copilot-bridge/workspaces/alice/agents/network.agent.md
+~/.copilot-bridge/workspaces/alice/agents/hvac.agent.md
+```
+
+Call with `ask_agent({ target: "alice", agent: "network", message: "..." })` to activate a specific persona.
+
+### Workspace Awareness
+
+When a bot serves multiple channels with different working directories, the ephemeral session automatically receives a workspace map listing all of the target bot's projects. The target bot can reason about which project is relevant to the question — no channel parameter needed.
+
+### Loop Prevention
+
+Three layers prevent infinite loops:
+1. **Visited set** — A bot cannot appear twice in the same call chain (catches A→B→A immediately)
+2. **Depth cap** — Hard limit on call chain length (default: 3)
+3. **Config allowlist** — Only explicitly permitted call paths are allowed
+
+### Permission Model
+
+Ephemeral sessions use merged permissions: the target bot's own rules plus the caller's approved permissions as supplementary grants. Hardcoded safety denies always apply. If `autopilot: false` (default) and a permission can't be resolved, the call returns an error to the caller with detail about what was blocked.
+
+### Audit
+
+All inter-agent calls are logged to SQLite (`agent_calls` table) with caller, target, duration, success/failure, and call chain metadata.

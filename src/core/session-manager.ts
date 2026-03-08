@@ -7,11 +7,18 @@ import {
   getChannelSession, setChannelSession, clearChannelSession,
   getChannelPrefs, setChannelPrefs, checkPermission, addPermissionRule,
   getWorkspaceOverride, setWorkspaceOverride, listWorkspaceOverrides,
+  recordAgentCall,
   type ChannelPrefs,
 } from '../state/store.js';
-import { getChannelConfig, getChannelBotName, evaluateConfigPermissions, isBotAdmin, getConfig, isHardDeny } from '../config.js';
+import { getChannelConfig, getChannelBotName, getChannelBotConfig, evaluateConfigPermissions, isBotAdmin, getConfig, getInterAgentConfig, isHardDeny } from '../config.js';
 import { getWorkspacePath, getWorkspaceAllowPaths, ensureWorkspacesDir } from './workspace-manager.js';
 import { onboardProject } from './onboarding.js';
+import {
+  canCall, createContext, extendContext,
+  getBotWorkspaceMap, buildWorkspacePrompt, buildCallerPrompt,
+  discoverAgentDefinitions, resolveAgentDefinition,
+  type InterAgentContext,
+} from './inter-agent.js';
 import { createLogger } from '../logger.js';
 import type { McpServerInfo } from './command-handler.js';
 import type {
@@ -21,7 +28,7 @@ import type {
 const log = createLogger('session');
 
 /** Custom tools auto-approved without interactive prompt (they enforce workspace boundaries internally). */
-const AUTO_APPROVED_CUSTOM_TOOLS = ['send_file', 'show_file_in_chat'];
+const AUTO_APPROVED_CUSTOM_TOOLS = ['send_file', 'show_file_in_chat', 'ask_agent'];
 
 type SessionEventHandler = (sessionId: string, channelId: string, event: any) => void;
 
@@ -812,6 +819,362 @@ export class SessionManager {
     this.attachSessionEvents(session, channelId);
   }
 
+  /**
+   * Execute an ephemeral inter-agent call: create a fresh session for the target bot,
+   * send the message, collect the response, and tear down.
+   */
+  async executeEphemeralCall(opts: {
+    callerBot: string;
+    targetBot: string;
+    message: string;
+    context: InterAgentContext;
+    agent?: string;
+    timeout?: number;
+    autopilot?: boolean;
+    denyTools?: string[];
+    grantTools?: string[];
+    callerChannelId: string;
+  }): Promise<{ success: true; response: string } | { success: false; error: string; detail: string }> {
+    const iaConfig = getInterAgentConfig();
+    const timeout = Math.min(
+      opts.timeout ?? iaConfig.defaultTimeout ?? 60,
+      iaConfig.maxTimeout ?? 300,
+    ) * 1000; // convert to ms
+
+    const startTime = Date.now();
+    const nextContext = extendContext(opts.context, opts.targetBot);
+
+    // Resolve target bot's workspace
+    const targetWorkspace = getWorkspacePath(opts.targetBot);
+    const targetBotConfig = this.getTargetBotConfig(opts.targetBot);
+
+    // Resolve agent definition
+    const agentDef = resolveAgentDefinition(
+      targetWorkspace,
+      opts.agent,
+      targetBotConfig?.agent,
+    );
+
+    // Build workspace awareness
+    const workspaceMap = getBotWorkspaceMap(opts.targetBot);
+    const workspacePrompt = buildWorkspacePrompt(workspaceMap);
+    const callerPrompt = buildCallerPrompt(opts.context);
+
+    // Build system message with inter-agent context
+    const systemParts = [callerPrompt, workspacePrompt];
+    if (agentDef) {
+      systemParts.push(`\n--- Agent Definition: ${agentDef.name} ---\n${agentDef.content}`);
+    }
+    // If the target has an ask_agent tool available, inject the chain context
+    if (nextContext.depth < (iaConfig.maxDepth ?? 3)) {
+      systemParts.push(
+        `\nYou have the ask_agent tool available for calling other agents. Current call chain: ${nextContext.visited.join(' → ')}. Remaining depth: ${(iaConfig.maxDepth ?? 3) - nextContext.depth}.`
+      );
+    }
+
+    // Collect allowPaths: union of all target bot's workspaces + bot's own allowPaths
+    const allAllowPaths = workspaceMap.map(e => e.workingDirectory);
+    const config = getConfig();
+    // Find target's platform
+    for (const [platformName, platform] of Object.entries(config.platforms)) {
+      if (platform.bots?.[opts.targetBot]) {
+        const extra = getWorkspaceAllowPaths(opts.targetBot, platformName);
+        allAllowPaths.push(...extra);
+        break;
+      }
+    }
+
+    const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
+    const skillDirectories = discoverSkillDirectories(targetWorkspace);
+
+    // Build ephemeral permission handler
+    const ephemeralPermissionHandler = this.buildEphemeralPermissionHandler(opts);
+
+    // Build custom tools for ephemeral session (ask_agent with propagated context)
+    const ephemeralTools = this.buildEphemeralTools(opts.callerChannelId, nextContext);
+
+    let session: CopilotSession | undefined;
+    try {
+      session = await withWorkspaceEnv(targetWorkspace, () =>
+        this.bridge.createSession({
+          model: targetBotConfig?.agent ? undefined : undefined, // use default
+          workingDirectory: targetWorkspace,
+          configDir: defaultConfigDir,
+          mcpServers: this.resolveMcpServers(targetWorkspace),
+          skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+          onPermissionRequest: ephemeralPermissionHandler,
+          systemMessage: { content: systemParts.filter(Boolean).join('\n\n') },
+          tools: ephemeralTools.length > 0 ? ephemeralTools : undefined,
+        })
+      );
+
+      // Send message and wait for idle
+      const response = await this.sendAndWaitForIdle(session, opts.message, timeout);
+
+      const durationMs = Date.now() - startTime;
+      recordAgentCall({
+        callerBot: opts.callerBot,
+        targetBot: opts.targetBot,
+        targetAgent: opts.agent,
+        messageSummary: opts.message.slice(0, 500),
+        responseSummary: response.slice(0, 500),
+        durationMs,
+        success: true,
+        chainId: opts.context.chainId,
+        depth: nextContext.depth,
+      });
+
+      log.info(`Ephemeral call ${opts.callerBot}→${opts.targetBot}: ${durationMs}ms, ${response.length} chars`);
+      return { success: true, response };
+
+    } catch (err: any) {
+      const durationMs = Date.now() - startTime;
+      const errorMsg = err?.message ?? 'unknown error';
+      recordAgentCall({
+        callerBot: opts.callerBot,
+        targetBot: opts.targetBot,
+        targetAgent: opts.agent,
+        messageSummary: opts.message.slice(0, 500),
+        durationMs,
+        success: false,
+        error: errorMsg,
+        chainId: opts.context.chainId,
+        depth: nextContext.depth,
+      });
+
+      log.error(`Ephemeral call ${opts.callerBot}→${opts.targetBot} failed: ${errorMsg}`);
+      return { success: false, error: 'ephemeral_session_error', detail: errorMsg };
+
+    } finally {
+      if (session) {
+        try { await this.bridge.destroySession(session.sessionId); } catch { /* best-effort */ }
+      }
+    }
+  }
+
+  /** Send a message to a session and wait for session.idle, collecting streamed response text. */
+  private sendAndWaitForIdle(session: CopilotSession, message: string, timeoutMs: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: string[] = [];
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          unsub();
+          reject(new Error(`Ephemeral session timed out after ${timeoutMs / 1000}s`));
+        }
+      }, timeoutMs);
+
+      const unsub = session.on((event: any) => {
+        if (settled) return;
+        if (event.type === 'assistant.message_delta' && event.data?.text) {
+          chunks.push(event.data.text);
+        }
+        if (event.type === 'session.idle') {
+          settled = true;
+          clearTimeout(timer);
+          unsub();
+          resolve(chunks.join(''));
+        }
+        if (event.type === 'session.error') {
+          settled = true;
+          clearTimeout(timer);
+          unsub();
+          reject(new Error(event.data?.message ?? 'Session error'));
+        }
+      });
+
+      session.send({ prompt: message }).catch((err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          unsub();
+          reject(err);
+        }
+      });
+    });
+  }
+
+  /** Build a permission handler for ephemeral sessions with merged caller+target rules. */
+  private buildEphemeralPermissionHandler(opts: {
+    autopilot?: boolean;
+    denyTools?: string[];
+    grantTools?: string[];
+    callerChannelId: string;
+    targetBot: string;
+  }): (request: any, invocation: { sessionId: string }) => Promise<any> {
+    return async (request: any, _invocation: { sessionId: string }) => {
+      const reqKind = (request as any).kind;
+      const reqCommand = typeof (request as any).fullCommandText === 'string'
+        ? (request as any).fullCommandText
+        : typeof (request as any).command === 'string' ? (request as any).command : undefined;
+
+      // 1. Hardcoded safety denies — always enforced
+      if (isHardDeny(reqKind, reqCommand)) {
+        return { kind: 'denied-by-rules' };
+      }
+
+      // 2. Auto-approve bridge custom tools
+      if (reqKind === 'custom-tool') {
+        const reqToolName = (request as any).toolName;
+        if (AUTO_APPROVED_CUSTOM_TOOLS.includes(reqToolName)) {
+          return { kind: 'approved' };
+        }
+      }
+
+      // 3. Caller's explicit denies
+      if (opts.denyTools && opts.denyTools.length > 0) {
+        const toolName = (request as any).toolName ?? (request as any).tool_name ?? (request as any).name ?? reqKind;
+        if (opts.denyTools.includes(toolName)) {
+          return { kind: 'denied-by-rules' };
+        }
+      }
+
+      // 4. Caller's explicit grants (only if caller has them)
+      if (opts.grantTools && opts.grantTools.length > 0) {
+        const toolName = (request as any).toolName ?? (request as any).tool_name ?? (request as any).name ?? reqKind;
+        if (opts.grantTools.includes(toolName)) {
+          // Verify caller has this permission
+          const callerResult = checkPermission(opts.callerChannelId, toolName, '*');
+          if (callerResult === 'allow') {
+            return { kind: 'approved' };
+          }
+        }
+      }
+
+      // 5. Target bot's own stored permission rules
+      // Use a synthetic scope for the target bot
+      const targetScope = `bot:${opts.targetBot}`;
+      const toolName = (request as any).toolName ?? (request as any).tool_name ?? (request as any).name ?? reqKind;
+      const storedResult = checkPermission(targetScope, toolName, '*');
+      if (storedResult === 'allow') return { kind: 'approved' };
+      if (storedResult === 'deny') return { kind: 'denied-by-rules' };
+
+      // 6. Caller channel's stored rules (merged — supplement target)
+      const callerResult = checkPermission(opts.callerChannelId, toolName, '*');
+      if (callerResult === 'allow') return { kind: 'approved' };
+
+      // 7. Autopilot: approve remaining if enabled
+      if (opts.autopilot) {
+        return { kind: 'approved' };
+      }
+
+      // 8. No rule matched — deny with detail (no human to ask in ephemeral sessions)
+      log.warn(`Ephemeral permission denied (no rule): ${toolName} for ${opts.targetBot}`);
+      return { kind: 'denied-no-approval-rule-and-could-not-request-from-user' };
+    };
+  }
+
+  /** Build custom tools for an ephemeral inter-agent session. */
+  private buildEphemeralTools(callerChannelId: string, context: InterAgentContext): any[] {
+    const tools: any[] = [];
+    const iaConfig = getInterAgentConfig();
+
+    // Only register ask_agent if there's remaining depth
+    if (iaConfig.enabled && context.depth < (iaConfig.maxDepth ?? 3)) {
+      tools.push(this.buildAskAgentToolDef(callerChannelId, context));
+    }
+
+    return tools;
+  }
+
+  /** Get target bot config across all platforms. */
+  private getTargetBotConfig(botName: string): { agent?: string | null; admin?: boolean } | null {
+    const config = getConfig();
+    for (const platform of Object.values(config.platforms)) {
+      if (platform.bots?.[botName]) {
+        return platform.bots[botName];
+      }
+    }
+    return null;
+  }
+
+  /** Build the ask_agent tool definition (shared by normal and ephemeral sessions). */
+  private buildAskAgentToolDef(channelId: string, parentContext?: InterAgentContext): any {
+    const callerBot = getChannelBotName(channelId);
+
+    return {
+      name: 'ask_agent',
+      description: 'Ask another agent a question. Creates a fresh session for the target agent with its own workspace, tools, and knowledge. Use this when you need information or capabilities from a different bot identity (e.g., asking Alice about home automation, asking a specialist about their domain).',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'The bot name to ask (e.g., "alice", "copilot"). Must be configured in the inter-agent allowlist.',
+          },
+          message: {
+            type: 'string',
+            description: 'The question or request to send to the target agent.',
+          },
+          agent: {
+            type: 'string',
+            description: 'Optional: specific agent persona to use (matches *.agent.md file in the target\'s workspace/agents/ directory).',
+          },
+          timeout: {
+            type: 'number',
+            description: 'Optional: timeout in seconds (default from config, capped at maxTimeout).',
+          },
+          autopilot: {
+            type: 'boolean',
+            description: 'Optional: auto-approve tool permissions in the target session (default: false). Enable for trusted queries that may require tool use.',
+          },
+          denyTools: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional: tool names to deny in the target session (e.g., ["bash"] for read-only queries).',
+          },
+          grantTools: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional: tool names to pre-approve in the target session. Only effective if you (the caller) also have those tools approved.',
+          },
+        },
+        required: ['target', 'message'],
+      },
+      handler: async (args: {
+        target: string;
+        message: string;
+        agent?: string;
+        timeout?: number;
+        autopilot?: boolean;
+        denyTools?: string[];
+        grantTools?: string[];
+      }) => {
+        try {
+          // Build or extend context
+          const context = parentContext
+            ? parentContext
+            : createContext(callerBot, channelId);
+
+          // Pre-flight: check if the call is allowed
+          const blocked = canCall(callerBot, args.target, context);
+          if (blocked) {
+            return { content: JSON.stringify({ success: false, error: 'not_allowed', detail: blocked }) };
+          }
+
+          const result = await this.executeEphemeralCall({
+            callerBot,
+            targetBot: args.target,
+            message: args.message,
+            context,
+            agent: args.agent,
+            timeout: args.timeout,
+            autopilot: args.autopilot,
+            denyTools: args.denyTools,
+            grantTools: args.grantTools,
+            callerChannelId: channelId,
+          });
+
+          return { content: JSON.stringify(result) };
+        } catch (err: any) {
+          return { content: JSON.stringify({ success: false, error: 'tool_error', detail: err?.message ?? 'unknown error' }) };
+        }
+      },
+    };
+  }
+
   /** Build custom tool definitions to pass to SDK session creation. */
   private buildCustomTools(channelId: string): any[] {
     const tools: any[] = [];
@@ -1166,6 +1529,12 @@ export class SessionManager {
           }
         },
       });
+    }
+
+    // Inter-agent tool: ask_agent (only when enabled in config)
+    const iaConfig = getInterAgentConfig();
+    if (iaConfig.enabled) {
+      tools.push(this.buildAskAgentToolDef(channelId));
     }
 
     if (tools.length > 0) {

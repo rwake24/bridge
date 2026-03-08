@@ -519,3 +519,107 @@ describe('reloadConfig', () => {
     expect(result.restartNeeded).toEqual([]);
   });
 });
+
+// --- interAgent config validation ---
+
+describe('interAgent config validation', () => {
+  let tmpDir: string;
+  let configFile: string;
+
+  beforeEach(() => {
+    _resetConfigForTest();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-ia-test-'));
+    configFile = path.join(tmpDir, 'config.json');
+  });
+
+  afterEach(() => {
+    _resetConfigForTest();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads config with valid interAgent section', () => {
+    const cfg = makeConfig({
+      interAgent: {
+        enabled: true,
+        defaultTimeout: 30,
+        maxTimeout: 120,
+        maxDepth: 2,
+        allow: {
+          max: { canCall: ['alice'], canBeCalledBy: ['alice'] },
+          alice: { canCall: ['max'], canBeCalledBy: ['max'] },
+        },
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+    expect(getConfig().interAgent?.enabled).toBe(true);
+    expect(getConfig().interAgent?.maxDepth).toBe(2);
+    expect(getConfig().interAgent?.allow?.max?.canCall).toEqual(['alice']);
+  });
+
+  it('loads config without interAgent (defaults to undefined)', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+    expect(getConfig().interAgent).toBeUndefined();
+  });
+
+  it('rejects non-boolean enabled', () => {
+    const cfg = makeConfig({ interAgent: { enabled: 'yes' } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.enabled must be a boolean');
+  });
+
+  it('rejects negative timeout', () => {
+    const cfg = makeConfig({ interAgent: { enabled: false, defaultTimeout: -5 } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.defaultTimeout must be a positive number');
+  });
+
+  it('rejects zero maxTimeout', () => {
+    const cfg = makeConfig({ interAgent: { enabled: false, maxTimeout: 0 } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.maxTimeout must be a positive number');
+  });
+
+  it('rejects non-integer maxDepth', () => {
+    const cfg = makeConfig({ interAgent: { enabled: false, maxDepth: 2.5 } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.maxDepth must be a positive integer');
+  });
+
+  it('rejects maxDepth of 0', () => {
+    const cfg = makeConfig({ interAgent: { enabled: false, maxDepth: 0 } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.maxDepth must be a positive integer');
+  });
+
+  it('rejects non-object allow', () => {
+    const cfg = makeConfig({ interAgent: { enabled: true, allow: ['max'] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('interAgent.allow must be an object');
+  });
+
+  it('rejects non-array canCall', () => {
+    const cfg = makeConfig({ interAgent: { enabled: true, allow: { max: { canCall: 'alice' } } } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('canCall must be an array');
+  });
+
+  it('rejects non-array canBeCalledBy', () => {
+    const cfg = makeConfig({ interAgent: { enabled: true, allow: { max: { canBeCalledBy: 'alice' } } } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('canBeCalledBy must be an array');
+  });
+
+  it('accepts wildcard in allowlist', () => {
+    const cfg = makeConfig({
+      interAgent: {
+        enabled: true,
+        allow: { summarizer: { canCall: [], canBeCalledBy: ['*'] } },
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+    expect(getConfig().interAgent?.allow?.summarizer?.canBeCalledBy).toEqual(['*']);
+  });
+});
