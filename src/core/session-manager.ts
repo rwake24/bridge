@@ -968,8 +968,13 @@ export class SessionManager {
 
       const unsub = session.on((event: any) => {
         if (settled) return;
-        if (event.type === 'assistant.message_delta' && event.data?.text) {
-          chunks.push(event.data.text);
+        if (event.type === 'assistant.message_delta') {
+          const text = event.data?.deltaContent ?? event.data?.text ?? event.deltaContent ?? '';
+          if (text) chunks.push(text);
+        }
+        if (event.type === 'assistant.message' && event.data?.content) {
+          // Full message event (non-streaming fallback)
+          chunks.push(event.data.content);
         }
         if (event.type === 'session.idle') {
           settled = true;
