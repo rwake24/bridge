@@ -143,6 +143,8 @@ export interface ChannelAdapter {
   downloadFile(fileId: string, destPath: string): Promise<string>;
   /** Upload a local file and send it as a message in a channel. Returns the post ID. */
   sendFile(channelId: string, filePath: string, message?: string, opts?: SendOpts): Promise<string>;
+  /** Add an emoji reaction to a message. Best-effort — implementations should not throw. */
+  addReaction?(postId: string, emoji: string): Promise<void>;
   // Optional admin operations — adapters that don't support these omit them
   createChannel?(opts: CreateChannelOpts): Promise<string>;
   addUserToChannel?(channelId: string, userId: string): Promise<void>;

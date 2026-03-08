@@ -38,6 +38,9 @@ const eventLocks = new Map<string, Promise<void>>();
 // Channels with an active startup nudge in flight (NO_REPLY filter only applies here)
 const nudgePending = new Set<string>();
 
+// Channels with an active agent turn in progress (for steering/queueing)
+const busyChannels = new Set<string>();
+
 // Bot adapters keyed by "platform:botName" for channel→adapter lookup
 const botAdapters = new Map<string, ChannelAdapter>();
 const botStreamers = new Map<string, StreamingHandler>();
@@ -235,6 +238,21 @@ async function main(): Promise<void> {
     const botName = key.slice(colonIdx + 1);
 
     adapter.onMessage((msg) => {
+      // If the channel is mid-turn, try steering (immediate mode) instead of serializing
+      if (busyChannels.has(msg.channelId)) {
+        handleMidTurnMessage(msg, sessionManager, platformName, botName)
+          .catch(err => {
+            log.warn(`Mid-turn send failed, falling back to queued handler:`, err);
+            // Fall back to normal serialized path
+            const prev = channelLocks.get(msg.channelId) ?? Promise.resolve();
+            const next = prev.then(() =>
+              handleInboundMessage(msg, sessionManager, platformName, botName)
+                .catch(e => log.error(`Unhandled error in message handler:`, e))
+            );
+            channelLocks.set(msg.channelId, next);
+          });
+        return;
+      }
       const prev = channelLocks.get(msg.channelId) ?? Promise.resolve();
       const next = prev.then(() =>
         handleInboundMessage(msg, sessionManager, platformName, botName)
@@ -307,6 +325,58 @@ async function main(): Promise<void> {
 }
 
 // --- Message Handling ---
+
+/** Handle a message that arrives while the session is mid-turn (steering via immediate mode). */
+async function handleMidTurnMessage(
+  msg: InboundMessage,
+  sessionManager: SessionManager,
+  platformName: string,
+  botName: string,
+): Promise<void> {
+  // Ignore messages from any bot we manage on this platform
+  for (const [key, a] of botAdapters) {
+    if (key.startsWith(`${platformName}:`) && msg.userId === a.getBotUserId()) return;
+  }
+
+  if (!isConfiguredChannel(msg.channelId)) return;
+
+  const assignedBot = getChannelBotName(msg.channelId);
+  if (assignedBot && assignedBot !== botName) return;
+
+  const resolved = getAdapterForChannel(msg.channelId);
+  if (!resolved) return;
+  const { adapter } = resolved;
+
+  const channelConfig = getChannelConfig(msg.channelId);
+
+  // Respect trigger mode — don't steer on unmentioned messages in mention-only channels
+  if (channelConfig.triggerMode === 'mention' && !msg.mentionsBot && !msg.isDM) return;
+
+  let text = msg.text;
+  text = text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
+    if (channelConfig.bot && match === `@${channelConfig.bot}`) return '';
+    return match;
+  }).trim();
+
+  if (!text) return;
+
+  // Slash commands still go through the normal serialized path
+  if (text.startsWith('/')) {
+    throw new Error('slash-command-while-busy');
+  }
+
+  // Pending user input or permissions — route to normal handler (don't steer)
+  if (sessionManager.hasPendingUserInput(msg.channelId) ||
+      sessionManager.hasPendingPermission(msg.channelId)) {
+    throw new Error('pending-input-while-busy');
+  }
+
+  log.info(`Mid-turn steering for ${msg.channelId.slice(0, 8)}...: "${text.slice(0, 100)}"`);
+  await sessionManager.sendMidTurn(msg.channelId, text);
+
+  // Acknowledge with ⚡ reaction
+  adapter.addReaction?.(msg.postId, 'zap').catch(() => {});
+}
 
 async function handleInboundMessage(
   msg: InboundMessage,
@@ -418,6 +488,7 @@ async function handleInboundMessage(
 
     switch (cmdResult.action) {
       case 'new_session': {
+        busyChannels.delete(msg.channelId);
         const oldStreamKey = activeStreams.get(msg.channelId);
         if (oldStreamKey) {
           await streaming.cancelStream(oldStreamKey);
@@ -429,6 +500,7 @@ async function handleInboundMessage(
         break;
       }
       case 'stop_session': {
+        busyChannels.delete(msg.channelId);
         const stopStreamKey = activeStreams.get(msg.channelId);
         if (stopStreamKey) {
           await streaming.cancelStream(stopStreamKey);
@@ -659,6 +731,7 @@ async function handleInboundMessage(
     const sdkAttachments = await downloadAttachments(msg.attachments, msg.channelId, adapter);
 
     await sessionManager.sendMessage(msg.channelId, text, sdkAttachments.length > 0 ? sdkAttachments : undefined, msg.userId);
+    busyChannels.add(msg.channelId);
   } catch (err) {
     log.error(`Error sending message for channel ${msg.channelId}:`, err);
     const streamKey = activeStreams.get(msg.channelId);
@@ -836,6 +909,7 @@ async function handleSessionEvent(
       break;
 
     case 'error':
+      busyChannels.delete(channelId);
       nudgePending.delete(channelId);
       if (streamKey) {
         await streaming.cancelStream(streamKey, formatted.content);
@@ -858,6 +932,7 @@ async function handleSessionEvent(
       // turn_end fires between tool cycles — DON'T finalize there or we get
       // duplicate "Working..." messages from auto-starting new streams.
       if (event.type === 'session.idle') {
+        busyChannels.delete(channelId);
         nudgePending.delete(channelId);
         await finalizeActivityFeed(channelId, adapter);
         initialStreamPosted.delete(channelId);
