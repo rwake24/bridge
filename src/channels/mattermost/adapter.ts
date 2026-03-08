@@ -189,6 +189,26 @@ export class MattermostAdapter implements ChannelAdapter {
     return this.botId;
   }
 
+  async addReaction(postId: string, emoji: string): Promise<void> {
+    try {
+      const baseUrl = this.client.getBaseRoute();
+      await fetch(`${baseUrl}/reactions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: this.botId,
+          post_id: postId,
+          emoji_name: emoji,
+        }),
+      });
+    } catch {
+      // Reactions are best-effort
+    }
+  }
+
   private handlePosted(msg: any): void {
     try {
       const post = JSON.parse(msg.data.post);

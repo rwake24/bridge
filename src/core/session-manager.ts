@@ -540,6 +540,21 @@ export class SessionManager {
     }
   }
 
+  /** Send a mid-turn message to an active session using immediate mode (steering).
+   *  Throws if no active session exists or if send fails. */
+  async sendMidTurn(channelId: string, text: string, userId?: string): Promise<string> {
+    if (userId) this.lastMessageUserIds.set(channelId, userId);
+
+    const sessionId = this.channelSessions.get(channelId);
+    if (!sessionId) throw new Error(`No active session for channel ${channelId}`);
+
+    const session = this.bridge.getSession(sessionId);
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+
+    log.info(`Mid-turn send (immediate) for channel ${channelId.slice(0, 8)}...: "${text.slice(0, 100)}"`);
+    return session.send({ prompt: text, mode: 'immediate' });
+  }
+
   /** Deny all pending permissions for a channel (e.g., when user sends a new message instead). */
   private clearPendingPermissions(channelId: string): void {
     const queue = this.pendingPermissions.get(channelId);
