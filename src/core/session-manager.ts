@@ -872,18 +872,6 @@ export class SessionManager {
       );
     }
 
-    // Collect allowPaths: union of all target bot's workspaces + bot's own allowPaths
-    const allAllowPaths = workspaceMap.map(e => e.workingDirectory);
-    const config = getConfig();
-    // Find target's platform
-    for (const [platformName, platform] of Object.entries(config.platforms)) {
-      if (platform.bots?.[opts.targetBot]) {
-        const extra = getWorkspaceAllowPaths(opts.targetBot, platformName);
-        allAllowPaths.push(...extra);
-        break;
-      }
-    }
-
     const defaultConfigDir = process.env.HOME ? `${process.env.HOME}/.copilot` : undefined;
     const skillDirectories = discoverSkillDirectories(targetWorkspace);
 
@@ -898,7 +886,6 @@ export class SessionManager {
     try {
       session = await withWorkspaceEnv(targetWorkspace, () =>
         this.bridge.createSession({
-          model: targetBotConfig?.agent ? undefined : undefined, // use default
           workingDirectory: targetWorkspace,
           configDir: defaultConfigDir,
           mcpServers: this.resolveMcpServers(targetWorkspace),

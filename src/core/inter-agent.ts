@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { getConfig, getInterAgentConfig, getChannelBotName } from '../config.js';
+import { getConfig, getInterAgentConfig } from '../config.js';
 import { getDynamicChannels } from '../state/store.js';
 import type { InterAgentConfig } from '../types.js';
 import { createLogger } from '../logger.js';

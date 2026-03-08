@@ -144,6 +144,9 @@ function getDb(): Database.Database {
       depth INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_calls_created ON agent_calls(created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_calls_chain ON agent_calls(chain_id);
   `);
 
   // Migration: ensure channel_prefs columns are nullable (fixes NOT NULL constraints from older schema)
