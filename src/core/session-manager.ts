@@ -891,7 +891,8 @@ export class SessionManager {
     const ephemeralPermissionHandler = this.buildEphemeralPermissionHandler(opts);
 
     // Build custom tools for ephemeral session (ask_agent with propagated context)
-    const ephemeralTools = this.buildEphemeralTools(opts.callerChannelId, nextContext);
+    // Pass target bot name so chained calls use B's identity (not A's channel)
+    const ephemeralTools = this.buildEphemeralTools(opts.targetBot, nextContext);
 
     let session: CopilotSession | undefined;
     try {
@@ -1020,19 +1021,19 @@ export class SessionManager {
         return { kind: 'denied-by-rules' };
       }
 
-      // 2. Auto-approve bridge custom tools
-      if (reqKind === 'custom-tool') {
-        const reqToolName = (request as any).toolName;
-        if (AUTO_APPROVED_CUSTOM_TOOLS.includes(reqToolName)) {
-          return { kind: 'approved' };
-        }
-      }
-
-      // 3. Caller's explicit denies
+      // 2. Caller's explicit denies — checked before auto-approve
       if (opts.denyTools && opts.denyTools.length > 0) {
         const toolName = (request as any).toolName ?? (request as any).tool_name ?? (request as any).name ?? reqKind;
         if (opts.denyTools.includes(toolName)) {
           return { kind: 'denied-by-rules' };
+        }
+      }
+
+      // 3. Auto-approve bridge custom tools
+      if (reqKind === 'custom-tool') {
+        const reqToolName = (request as any).toolName;
+        if (AUTO_APPROVED_CUSTOM_TOOLS.includes(reqToolName)) {
+          return { kind: 'approved' };
         }
       }
 
@@ -1072,13 +1073,13 @@ export class SessionManager {
   }
 
   /** Build custom tools for an ephemeral inter-agent session. */
-  private buildEphemeralTools(callerChannelId: string, context: InterAgentContext): any[] {
+  private buildEphemeralTools(currentBotName: string, context: InterAgentContext): any[] {
     const tools: any[] = [];
     const iaConfig = getInterAgentConfig();
 
     // Only register ask_agent if there's remaining depth
     if (iaConfig.enabled && context.depth < (iaConfig.maxDepth ?? 3)) {
-      tools.push(this.buildAskAgentToolDef(callerChannelId, context));
+      tools.push(this.buildAskAgentToolDef(currentBotName, context, true));
     }
 
     return tools;
@@ -1095,9 +1096,11 @@ export class SessionManager {
     return null;
   }
 
-  /** Build the ask_agent tool definition (shared by normal and ephemeral sessions). */
-  private buildAskAgentToolDef(channelId: string, parentContext?: InterAgentContext): any {
-    const callerBot = getChannelBotName(channelId);
+  /** Build the ask_agent tool definition (shared by normal and ephemeral sessions).
+   *  When callerBotDirect is true, channelIdOrBot is the bot name directly (for ephemeral sessions). */
+  private buildAskAgentToolDef(channelIdOrBot: string, parentContext?: InterAgentContext, callerBotDirect = false): any {
+    const callerBot = callerBotDirect ? channelIdOrBot : getChannelBotName(channelIdOrBot);
+    const channelId = callerBotDirect ? undefined : channelIdOrBot;
 
     return {
       name: 'ask_agent',
@@ -1151,7 +1154,7 @@ export class SessionManager {
           // Build or extend context
           const context = parentContext
             ? parentContext
-            : createContext(callerBot, channelId);
+            : createContext(callerBot, channelId!);
 
           // Pre-flight: check if the call is allowed
           const blocked = canCall(callerBot, args.target, context);
@@ -1169,7 +1172,7 @@ export class SessionManager {
             autopilot: args.autopilot,
             denyTools: args.denyTools,
             grantTools: args.grantTools,
-            callerChannelId: channelId,
+            callerChannelId: channelId ?? `bot:${callerBot}`,
           });
 
           return { content: JSON.stringify(result) };
