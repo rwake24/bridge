@@ -242,7 +242,13 @@ async function main(): Promise<void> {
       if (busyChannels.has(msg.channelId)) {
         handleMidTurnMessage(msg, sessionManager, platformName, botName)
           .catch(err => {
-            log.warn(`Mid-turn send failed, falling back to queued handler:`, err);
+            // Expected fallbacks (slash commands, pending input) — debug level
+            const expected = err?.message === 'slash-command-while-busy' || err?.message === 'pending-input-while-busy';
+            if (expected) {
+              log.debug(`Mid-turn fallback (${err.message}), routing to normal handler`);
+            } else {
+              log.warn(`Mid-turn send failed, falling back to queued handler:`, err);
+            }
             // Fall back to normal serialized path
             const prev = channelLocks.get(msg.channelId) ?? Promise.resolve();
             const next = prev.then(() =>
@@ -326,6 +332,15 @@ async function main(): Promise<void> {
 
 // --- Message Handling ---
 
+/** Strip the bot's own @mention from message text, keeping other mentions intact. */
+function stripBotMention(text: string, botName: string | undefined): string {
+  if (!botName) return text;
+  return text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
+    if (match === `@${botName}`) return '';
+    return match;
+  }).trim();
+}
+
 /** Handle a message that arrives while the session is mid-turn (steering via immediate mode). */
 async function handleMidTurnMessage(
   msg: InboundMessage,
@@ -352,12 +367,7 @@ async function handleMidTurnMessage(
   // Respect trigger mode — don't steer on unmentioned messages in mention-only channels
   if (channelConfig.triggerMode === 'mention' && !msg.mentionsBot && !msg.isDM) return;
 
-  let text = msg.text;
-  text = text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
-    if (channelConfig.bot && match === `@${channelConfig.bot}`) return '';
-    return match;
-  }).trim();
-
+  const text = stripBotMention(msg.text, channelConfig.bot);
   if (!text) return;
 
   // Slash commands still go through the normal serialized path
@@ -372,10 +382,10 @@ async function handleMidTurnMessage(
   }
 
   log.info(`Mid-turn steering for ${msg.channelId.slice(0, 8)}...: "${text.slice(0, 100)}"`);
-  await sessionManager.sendMidTurn(msg.channelId, text);
+  await sessionManager.sendMidTurn(msg.channelId, text, msg.userId);
 
-  // Acknowledge with ⚡ reaction
-  adapter.addReaction?.(msg.postId, 'zap').catch(() => {});
+  // Acknowledge with ⚡ reaction (best-effort)
+  try { adapter.addReaction?.(msg.postId, 'zap')?.catch(() => {}); } catch { /* best-effort */ }
 }
 
 async function handleInboundMessage(
@@ -431,12 +441,7 @@ async function handleInboundMessage(
   if (triggerMode === 'mention' && !msg.mentionsBot && !msg.isDM) return;
 
   // Strip bot mention from message text
-  let text = msg.text;
-  text = text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
-    // Only remove the bot's mention, keep others
-    if (channelConfig.bot && match === `@${channelConfig.bot}`) return '';
-    return match;
-  }).trim();
+  let text = stripBotMention(msg.text, channelConfig.bot);
 
   if (!text) return;
 
@@ -727,12 +732,15 @@ async function handleInboundMessage(
     const streamKey = await streaming.startStream(msg.channelId, threadRoot);
     activeStreams.set(msg.channelId, streamKey);
 
+    // Mark busy before send so mid-turn messages arriving during the await are steered
+    busyChannels.add(msg.channelId);
+
     // Download any file attachments to .temp/ in the bot's workspace
     const sdkAttachments = await downloadAttachments(msg.attachments, msg.channelId, adapter);
 
     await sessionManager.sendMessage(msg.channelId, text, sdkAttachments.length > 0 ? sdkAttachments : undefined, msg.userId);
-    busyChannels.add(msg.channelId);
   } catch (err) {
+    busyChannels.delete(msg.channelId);
     log.error(`Error sending message for channel ${msg.channelId}:`, err);
     const streamKey = activeStreams.get(msg.channelId);
     if (streamKey) {

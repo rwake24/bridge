@@ -542,7 +542,9 @@ export class SessionManager {
 
   /** Send a mid-turn message to an active session using immediate mode (steering).
    *  Throws if no active session exists or if send fails. */
-  async sendMidTurn(channelId: string, text: string): Promise<string> {
+  async sendMidTurn(channelId: string, text: string, userId?: string): Promise<string> {
+    if (userId) this.lastMessageUserIds.set(channelId, userId);
+
     const sessionId = this.channelSessions.get(channelId);
     if (!sessionId) throw new Error(`No active session for channel ${channelId}`);
 
