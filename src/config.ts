@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig } from './types.js';
+import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig } from './types.js';
 import { getDynamicChannel } from './state/store.js';
 import { createLogger } from './logger.js';
 
@@ -51,6 +51,37 @@ function validateAndNormalize(raw: any): AppConfig {
     }
   }
 
+  // Validate interAgent config (optional)
+  if (raw.interAgent) {
+    const ia = raw.interAgent;
+    if (typeof ia.enabled !== 'boolean') {
+      throw new Error('interAgent.enabled must be a boolean');
+    }
+    if (ia.defaultTimeout !== undefined && (typeof ia.defaultTimeout !== 'number' || ia.defaultTimeout <= 0)) {
+      throw new Error('interAgent.defaultTimeout must be a positive number');
+    }
+    if (ia.maxTimeout !== undefined && (typeof ia.maxTimeout !== 'number' || ia.maxTimeout <= 0)) {
+      throw new Error('interAgent.maxTimeout must be a positive number');
+    }
+    if (ia.maxDepth !== undefined && (typeof ia.maxDepth !== 'number' || ia.maxDepth < 1 || !Number.isInteger(ia.maxDepth))) {
+      throw new Error('interAgent.maxDepth must be a positive integer');
+    }
+    if (ia.allow) {
+      if (typeof ia.allow !== 'object' || Array.isArray(ia.allow)) {
+        throw new Error('interAgent.allow must be an object mapping bot names to permissions');
+      }
+      for (const [botName, perms] of Object.entries(ia.allow)) {
+        const p = perms as any;
+        if (p.canCall && !Array.isArray(p.canCall)) {
+          throw new Error(`interAgent.allow.${botName}.canCall must be an array`);
+        }
+        if (p.canBeCalledBy && !Array.isArray(p.canBeCalledBy)) {
+          throw new Error(`interAgent.allow.${botName}.canBeCalledBy must be an array`);
+        }
+      }
+    }
+  }
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -67,6 +98,7 @@ function validateAndNormalize(raw: any): AppConfig {
     channels: raw.channels,
     defaults,
     permissions: raw.permissions,
+    interAgent: raw.interAgent,
   };
 }
 
@@ -120,6 +152,11 @@ function diffConfigs(oldCfg: AppConfig, newCfg: AppConfig): { changes: string[];
   // --- Permissions ---
   if (JSON.stringify(oldCfg.permissions ?? {}) !== JSON.stringify(newCfg.permissions ?? {})) {
     changes.push('permissions updated');
+  }
+
+  // --- Inter-Agent ---
+  if (JSON.stringify(oldCfg.interAgent ?? {}) !== JSON.stringify(newCfg.interAgent ?? {})) {
+    changes.push('interAgent config updated');
   }
 
   // --- Channels ---
@@ -249,6 +286,11 @@ export function reloadConfig(): ReloadResult {
 export function getConfig(): AppConfig {
   if (!_config) throw new Error('Config not loaded. Call loadConfig() first.');
   return _config;
+}
+
+export function getInterAgentConfig(): InterAgentConfig {
+  const config = getConfig();
+  return config.interAgent ?? { enabled: false };
 }
 
 export function getChannelConfig(channelId: string): ChannelConfig & { permissionMode: string } {

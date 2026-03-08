@@ -81,5 +81,16 @@
       "stackoverflow.com",
       "developer.mozilla.org"
     ]
+  },
+  "_comment_interAgent": "Optional: enable inter-agent communication (ask_agent tool)",
+  "interAgent": {
+    "enabled": false,
+    "defaultTimeout": 60,
+    "maxTimeout": 300,
+    "maxDepth": 3,
+    "allow": {
+      "copilot": { "canCall": ["bob"], "canBeCalledBy": ["bob"] },
+      "bob": { "canCall": ["copilot"], "canBeCalledBy": ["copilot"] }
+    }
   }
 }
