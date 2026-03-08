@@ -556,7 +556,7 @@ const HARDCODED_DENY_RULES: HardcodedRule[] = [
  * Hardcoded safety denies — cannot be overridden by config or stored rules.
  * These prevent destructive commands that should never run in any context.
  */
-export function isHardDeny(kind: string, command: string | undefined, shellCmd: string | undefined): boolean {
+export function isHardDeny(kind: string, command: string | undefined): boolean {
   if (kind !== 'shell' || !command) return false;
   const cmd = command.trim();
   const unwrapped = unwrapShellCommand(cmd);
@@ -623,7 +623,7 @@ export function evaluateConfigPermissions(
   })() : undefined;
 
   // Hardcoded safety denies — cannot be overridden
-  if (isHardDeny(kind, command, shellCmd)) {
+  if (isHardDeny(kind, command)) {
     return 'deny';
   }
 
