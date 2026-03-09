@@ -7,17 +7,13 @@
  */
 
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
 import { ask, askRequired, askSecret, confirm, choose, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
-import {
-  detectPlatform, generateLaunchdPlist, generateSystemdUnit,
-  installLaunchd, installSystemd, getLaunchdInstallPath, getSystemdInstallPath,
-} from './lib/service.js';
+import { detectPlatform } from './lib/service.js';
 
 async function main() {
   console.log();
@@ -216,74 +212,16 @@ async function main() {
   heading('Step 7: Service Setup (Optional)');
 
   const osPlatform = detectPlatform();
-  const bridgePath = process.cwd();
-  const homePath = os.homedir();
-
   if (osPlatform === 'macos') {
-    info('macOS detected — can install as a launchd service.');
-    dim('The service auto-starts at login and restarts on crash.\n');
-
-    if (await confirm('Install launchd service?', true)) {
-      const plist = generateLaunchdPlist({
-        label: 'com.copilot-bridge',
-        bridgePath,
-        homePath,
-      });
-
-      const installPath = getLaunchdInstallPath();
-      if (fs.existsSync(installPath)) {
-        if (!await confirm(`${installPath} already exists. Overwrite?`, false)) {
-          info('Skipping service install.');
-        } else {
-          const result = installLaunchd(plist);
-          if (result.installed) success(`Service installed at ${result.path}`);
-          else fail(`Install failed: ${result.error}`);
-        }
-      } else {
-        const result = installLaunchd(plist);
-        if (result.installed) success(`Service installed at ${result.path}`);
-        else fail(`Install failed: ${result.error}`);
-      }
-    }
+    info('To run as a launchd service (auto-start at login):');
+    dim('  npm run install-service\n');
   } else if (osPlatform === 'linux') {
-    info('Linux detected — can install as a systemd service.');
-    dim('The service starts at boot and restarts on crash. Requires sudo.\n');
-    dim('Note: you need to build first (npm run build) since systemd runs dist/index.js.\n');
-
-    if (await confirm('Install systemd service?', true)) {
-      const unit = generateSystemdUnit({
-        bridgePath,
-        homePath,
-        user: os.userInfo().username,
-      });
-
-      const installPath = getSystemdInstallPath();
-      const doInstall = !fs.existsSync(installPath)
-        || await confirm(`${installPath} already exists. Overwrite?`, false);
-
-      if (doInstall) {
-        const result = installSystemd(unit);
-        if (result.installed) {
-          success(`Service installed and started at ${result.path}`);
-        } else {
-          fail('Automatic install failed (sudo may have been denied).');
-          // Write the unit to a temp file so user can install manually
-          const tmpPath = path.join(os.tmpdir(), 'copilot-bridge.service');
-          fs.writeFileSync(tmpPath, unit, 'utf-8');
-          blank();
-          info('Service file written to: ' + tmpPath);
-          info('To install manually:');
-          dim(`  sudo cp ${tmpPath} ${installPath}`);
-          dim('  sudo systemctl daemon-reload');
-          dim('  sudo systemctl enable --now copilot-bridge');
-        }
-      } else {
-        info('Skipping service install.');
-      }
-    }
+    info('To run as a systemd service (auto-start at boot):');
+    dim('  npm run install-service');
+    dim('  (requires sudo — installs to /etc/systemd/system/)\n');
+    dim('  Note: build first with npm run build\n');
   } else {
-    info('Unsupported platform for automatic service install.');
-    info('You can run the bridge manually: npm run dev (development) or npm start (production)');
+    info('Run the bridge manually: npm run dev (development) or npm start (production)');
   }
 
   // --- Done ---
@@ -295,10 +233,11 @@ async function main() {
   info('DMs: enabled automatically');
   blank();
   dim('Next steps:');
-  dim('  npm run dev          Start in development mode (watch)');
-  dim('  npm run check        Validate your setup');
-  dim('  npm run build        Build for production');
-  dim('  npm start            Start production server');
+  dim('  npm run dev              Start in development mode (watch)');
+  dim('  npm run check            Validate your setup');
+  dim('  npm run install-service  Install as a system service');
+  dim('  npm run build            Build for production');
+  dim('  npm start                Start production server');
   blank();
 
   closePrompts();

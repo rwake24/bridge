@@ -15,6 +15,7 @@
     "start": "node dist/index.js",
     "init": "tsx scripts/init.ts",
     "check": "tsx scripts/check.ts",
+    "install-service": "tsx scripts/install-service.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -190,11 +190,17 @@ npm start
 
 ## Running as a Service
 
-The bridge should run persistently so it's always available in chat. Use the appropriate method for your OS.
+The bridge should run persistently so it's always available in chat. The quickest way is:
+
+```bash
+npm run install-service
+```
+
+This detects your OS, generates the correct service file with your paths, and installs it. On Linux it requires `sudo` (it will prompt). You can also set it up manually:
 
 ### macOS (launchd)
 
-The `npm run init` wizard can install this automatically. To do it manually:
+`npm run install-service` handles this automatically. To do it manually:
 
 ```bash
 cp scripts/com.copilot-bridge.plist ~/Library/LaunchAgents/
@@ -228,7 +234,7 @@ launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
 
 ### Linux (systemd)
 
-The `npm run init` wizard can install the service automatically. To do it manually:
+`npm run install-service` handles this automatically (requires `sudo`). To do it manually:
 
 ```bash
 # Build first — systemd runs the compiled output
