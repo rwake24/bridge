@@ -56,8 +56,11 @@ function main() {
       return;
     }
 
-    info('This requires sudo to remove from /etc/systemd/system/.');
-    blank();
+    const isRoot = process.getuid?.() === 0;
+    if (!isRoot) {
+      info('This requires sudo to remove from /etc/systemd/system/.');
+      blank();
+    }
 
     try {
       execSync('sudo systemctl stop copilot-bridge 2>/dev/null || true', { stdio: 'inherit' });

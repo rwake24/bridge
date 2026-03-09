@@ -75,8 +75,11 @@ function main() {
     // Write to temp, then sudo copy
     fs.writeFileSync(tmpPath, unit, 'utf-8');
 
-    info('This requires sudo to install to /etc/systemd/system/.');
-    blank();
+    const isRoot = process.getuid?.() === 0;
+    if (!isRoot) {
+      info('This requires sudo to install to /etc/systemd/system/.');
+      blank();
+    }
 
     try {
       execSync(`sudo cp "${tmpPath}" "${installPath}"`, { stdio: 'inherit' });
