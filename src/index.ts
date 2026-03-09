@@ -453,14 +453,17 @@ async function handleMidTurnMessage(
   }
 
   // Slash commands while busy: handle safe ones immediately, defer the rest
-  if (text.startsWith('/')) {
-    const parsed = parseCommand(text);
+  // Extract thread request first so 🧵 doesn't pollute command parsing
+  const threadExtract = extractThreadRequest(text);
+  const commandText = threadExtract.text;
+
+  if (commandText.startsWith('/')) {
+    const parsed = parseCommand(commandText);
     if (!parsed) {
       throw new Error('slash-command-while-busy');
     }
 
     const channelConfig = getChannelConfig(msg.channelId);
-    const threadExtract = extractThreadRequest(text);
     const threadRoot = resolveThreadRoot(msg, threadExtract.threadRequested, channelConfig);
 
     // Commands that MUST run immediately (abort/cancel current work)
@@ -512,7 +515,7 @@ async function handleMidTurnMessage(
       const contextUsage = sessionManager.getContextUsage(msg.channelId);
 
       const cmdResult = handleCommand(
-        msg.channelId, text, sessionInfo ?? undefined,
+        msg.channelId, commandText, sessionInfo ?? undefined,
         { verbose: effPrefs.verbose, permissionMode: effPrefs.permissionMode, reasoningEffort: effPrefs.reasoningEffort },
         { workingDirectory: channelConfig.workingDirectory, bot: channelConfig.bot },
         models, mcpInfo, contextUsage,
