@@ -82,13 +82,16 @@ async function main() {
 
   // --- Step 4: Bot tokens ---
   heading('Step 3: Bot Configuration');
-  info('Add one or more bot identities. Each needs a Mattermost bot token.');
-  dim('Single bot: simpler setup. Multiple bots: separate identities (e.g., @copilot + @alice)\n');
 
   const bots: BotEntry[] = [];
   let addMore = true;
 
   while (addMore) {
+    if (bots.length === 0) {
+      info('Enter the bot token from your Mattermost bot account.');
+      dim('You can add more bots later if you want multiple identities.\n');
+    }
+
     const token = await askSecret(`Bot token${bots.length > 0 ? ' (for next bot)' : ''}`);
     const validation = await validateBotToken(mmUrl, token);
     printCheck(validation.result);
@@ -105,7 +108,8 @@ async function main() {
       success(`Added bot "${validation.bot.username}"${isAdmin ? ' (admin)' : ''}`);
     } else {
       warn('Token validation failed. The token was still added — verify it later with "npm run check".');
-      const name = await askRequired('Bot username (for config)');
+      let name = await askRequired('Bot username (for config)');
+      name = name.replace(/^@/, '');
       bots.push({ name, token, admin: false });
     }
 
@@ -120,7 +124,7 @@ async function main() {
   info('Group channels need their channel ID and a working directory.\n');
 
   const channels: ChannelEntry[] = [];
-  let addChannels = await confirm('Configure group channels now?', true);
+  let addChannels = await confirm('Configure group channels now?', false);
 
   while (addChannels) {
     const channelId = await askRequired('Channel ID (from Mattermost channel settings → View Info)');
@@ -171,6 +175,7 @@ async function main() {
 
   // --- Step 6: Defaults ---
   heading('Step 5: Defaults');
+  dim('These can be changed later in config.json or via chat commands.\n');
 
   const defaults: ConfigDefaults = {};
 
@@ -186,7 +191,7 @@ async function main() {
     defaults.model = ['claude-sonnet-4.6', 'claude-opus-4.6', 'claude-haiku-4.5'][modelChoice];
   }
 
-  const triggerChoice = await choose('Default trigger mode?', [
+  const triggerChoice = await choose('Default trigger mode (for group channels — DMs always respond)?', [
     'mention — bot responds only when @mentioned (recommended)',
     'all — bot responds to every message in the channel',
   ]);
@@ -241,11 +246,11 @@ async function main() {
       }
     }
   } else if (osPlatform === 'linux') {
-    info('Linux detected — can install as a systemd user service.');
-    dim('The service auto-starts at login and restarts on crash.\n');
+    info('Linux detected — can install as a systemd service.');
+    dim('The service starts at boot and restarts on crash. Requires sudo.\n');
     dim('Note: you need to build first (npm run build) since systemd runs dist/index.js.\n');
 
-    if (await confirm('Install systemd user service?', true)) {
+    if (await confirm('Install systemd service?', true)) {
       const unit = generateSystemdUnit({
         bridgePath,
         homePath,
@@ -253,18 +258,27 @@ async function main() {
       });
 
       const installPath = getSystemdInstallPath();
-      if (fs.existsSync(installPath)) {
-        if (!await confirm(`${installPath} already exists. Overwrite?`, false)) {
-          info('Skipping service install.');
+      const doInstall = !fs.existsSync(installPath)
+        || await confirm(`${installPath} already exists. Overwrite?`, false);
+
+      if (doInstall) {
+        const result = installSystemd(unit);
+        if (result.installed) {
+          success(`Service installed and started at ${result.path}`);
         } else {
-          const result = installSystemd(unit);
-          if (result.installed) success(`Service installed and started at ${result.path}`);
-          else fail(`Install failed: ${result.error}`);
+          fail('Automatic install failed (sudo may have been denied).');
+          // Write the unit to a temp file so user can install manually
+          const tmpPath = path.join(os.tmpdir(), 'copilot-bridge.service');
+          fs.writeFileSync(tmpPath, unit, 'utf-8');
+          blank();
+          info('Service file written to: ' + tmpPath);
+          info('To install manually:');
+          dim(`  sudo cp ${tmpPath} ${installPath}`);
+          dim('  sudo systemctl daemon-reload');
+          dim('  sudo systemctl enable --now copilot-bridge');
         }
       } else {
-        const result = installSystemd(unit);
-        if (result.installed) success(`Service installed and started at ${result.path}`);
-        else fail(`Install failed: ${result.error}`);
+        info('Skipping service install.');
       }
     }
   } else {

@@ -137,16 +137,27 @@ export function getSystemdInstallPath(): string {
   return '/etc/systemd/system/copilot-bridge.service';
 }
 
-export function installSystemd(unitContent: string): { installed: boolean; path: string; error?: string } {
+export function installSystemd(unitContent: string): { installed: boolean; path: string; error?: string; manualSteps?: string } {
   const installPath = getSystemdInstallPath();
+  const tmpPath = path.join(os.tmpdir(), 'copilot-bridge.service');
   try {
-    fs.writeFileSync(installPath, unitContent, 'utf-8');
+    fs.writeFileSync(tmpPath, unitContent, 'utf-8');
+    execSync(`sudo cp "${tmpPath}" "${installPath}"`, { encoding: 'utf-8', stdio: 'inherit' });
+    fs.unlinkSync(tmpPath);
     execSync('sudo systemctl daemon-reload', { encoding: 'utf-8' });
     execSync('sudo systemctl enable copilot-bridge', { encoding: 'utf-8' });
     execSync('sudo systemctl start copilot-bridge', { encoding: 'utf-8' });
     return { installed: true, path: installPath };
   } catch (err) {
-    return { installed: false, path: installPath, error: String(err) };
+    // Clean up temp file if it exists
+    try { fs.unlinkSync(tmpPath); } catch {}
+    const manual = [
+      'To install manually:',
+      `  sudo cp ${tmpPath} ${installPath}`,
+      '  sudo systemctl daemon-reload',
+      '  sudo systemctl enable --now copilot-bridge',
+    ].join('\n');
+    return { installed: false, path: installPath, error: String(err), manualSteps: manual };
   }
 }
 

@@ -34,6 +34,10 @@ export async function pingServer(baseUrl: string): Promise<CheckResult> {
   if (ok && data?.status === 'OK') {
     return { status: 'pass', label: `Mattermost: ${baseUrl}`, detail: 'reachable' };
   }
+  // 403 on /system/ping is normal — server is reachable but requires auth
+  if (status === 401 || status === 403) {
+    return { status: 'pass', label: `Mattermost: ${baseUrl}`, detail: 'reachable (auth required for ping, which is normal)' };
+  }
   if (status === 0) {
     return { status: 'fail', label: `Mattermost: ${baseUrl}`, detail: 'connection failed — check URL' };
   }
@@ -58,6 +62,9 @@ export async function validateBotToken(baseUrl: string, token: string): Promise<
   }
   if (status === 401) {
     return { result: { status: 'fail', label: 'Bot token', detail: 'invalid or expired token' } };
+  }
+  if (status === 403) {
+    return { result: { status: 'fail', label: 'Bot token', detail: 'token rejected (403) — check that the token has API access permissions' } };
   }
   return { result: { status: 'fail', label: 'Bot token', detail: `HTTP ${status}: ${data?.message || 'unknown error'}` } };
 }
