@@ -1,6 +1,6 @@
 import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules, reloadConfig, ConfigWatcher } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
-import { SessionManager } from './core/session-manager.js';
+import { SessionManager, BRIDGE_CUSTOM_TOOLS } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
 import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './core/stream-formatter.js';
 import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
@@ -9,6 +9,7 @@ import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
 import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
+import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
 import { getTaskHistory } from './state/store.js';
 import { createLogger } from './logger.js';
 import fs from 'node:fs';
@@ -39,9 +40,6 @@ const eventLocks = new Map<string, Promise<void>>();
 
 // Channels with an active startup nudge in flight (NO_REPLY filter only applies here)
 const nudgePending = new Set<string>();
-
-// Channels with an active agent turn in progress (for steering/queueing)
-const busyChannels = new Set<string>();
 
 // Bot adapters keyed by "platform:botName" for channel→adapter lookup
 const botAdapters = new Map<string, ChannelAdapter>();
@@ -241,11 +239,11 @@ async function main(): Promise<void> {
 
     adapter.onMessage((msg) => {
       // If the channel is mid-turn, try steering (immediate mode) instead of serializing
-      if (busyChannels.has(msg.channelId)) {
+      if (isBusy(msg.channelId)) {
         handleMidTurnMessage(msg, sessionManager, platformName, botName)
           .catch(err => {
-            // Expected fallbacks (slash commands, pending input) — debug level
-            const expected = err?.message === 'slash-command-while-busy' || err?.message === 'pending-input-while-busy';
+            // Expected fallback (slash commands during busy) — debug level
+            const expected = err?.message === 'slash-command-while-busy';
             if (expected) {
               log.debug(`Mid-turn fallback (${err.message}), routing to normal handler`);
             } else {
@@ -314,21 +312,28 @@ async function main(): Promise<void> {
         const resolved = getAdapterForChannel(channelId);
         if (resolved) {
           const { streaming } = resolved;
-          // Finalize any existing stream so the scheduled job gets its own message
-          const existingStream = activeStreams.get(channelId);
-          if (existingStream) {
-            await streaming.finalizeStream(existingStream);
-            activeStreams.delete(channelId);
-          }
-          const streamKey = await streaming.startStream(channelId);
-          activeStreams.set(channelId, streamKey);
-          busyChannels.add(channelId);
+          // Atomically swap streams via eventLocks to prevent event interleaving
+          const evPrev = eventLocks.get(channelId) ?? Promise.resolve();
+          const evTask = evPrev.then(async () => {
+            const existingStream = activeStreams.get(channelId);
+            if (existingStream) {
+              await streaming.finalizeStream(existingStream);
+              activeStreams.delete(channelId);
+            }
+            const streamKey = await streaming.startStream(channelId);
+            activeStreams.set(channelId, streamKey);
+          });
+          eventLocks.set(channelId, evTask.catch(() => {}));
+          await evTask;
+          markBusy(channelId);
         }
         try {
           await sessionManager.sendMessage(channelId, prompt);
+          // Hold the lock until the response is fully streamed
+          await waitForChannelIdle(channelId);
         } catch (err: any) {
           log.error(`Scheduled job sendMessage failed for ${channelId.slice(0, 8)}...:`, err);
-          busyChannels.delete(channelId);
+          markIdleImmediate(channelId);
           const failedStream = activeStreams.get(channelId);
           if (failedStream) {
             const r = getAdapterForChannel(channelId);
@@ -418,25 +423,56 @@ async function handleMidTurnMessage(
   const text = stripBotMention(msg.text, channelConfig.bot);
   if (!text) return;
 
-  // Slash commands still go through the normal serialized path
+  // Pending user input — resolve directly (bypasses channelLock to avoid deadlock
+  // since the lock is held by waitForChannelIdle which needs this to resolve first)
+  if (sessionManager.hasPendingUserInput(msg.channelId)) {
+    sessionManager.resolveUserInput(msg.channelId, text);
+    return;
+  }
+
+  // Pending permission — resolve directly for the same reason.
+  // Must be checked BEFORE the general slash-command throw so /approve, /deny,
+  // /remember can resolve the permission instead of deadlocking on channelLocks.
+  if (sessionManager.hasPendingPermission(msg.channelId)) {
+    const lower = text.toLowerCase();
+    if (lower === '/approve' || lower === 'yes' || lower === 'y' || lower === 'approve') {
+      sessionManager.resolvePermission(msg.channelId, true);
+      return;
+    }
+    if (lower === '/deny' || lower === 'no' || lower === 'n' || lower === 'deny') {
+      sessionManager.resolvePermission(msg.channelId, false);
+      return;
+    }
+    if (lower === '/remember') {
+      sessionManager.resolvePermission(msg.channelId, true, true);
+      return;
+    }
+    // Other slash commands and unrecognized text while permission pending — ignore.
+    // They can't be queued on channelLocks (deadlock) and the permission must be resolved first.
+    return;
+  }
+
+  // Non-permission slash commands go through the normal serialized path
   if (text.startsWith('/')) {
     throw new Error('slash-command-while-busy');
   }
 
-  // Pending user input or permissions — route to normal handler (don't steer)
-  if (sessionManager.hasPendingUserInput(msg.channelId) ||
-      sessionManager.hasPendingPermission(msg.channelId)) {
-    throw new Error('pending-input-while-busy');
-  }
-
   log.info(`Mid-turn steering for ${msg.channelId.slice(0, 8)}...: "${text.slice(0, 100)}"`);
 
-  // Finalize the current stream so the steered response starts a new message
-  const existingStream = activeStreams.get(msg.channelId);
-  if (existingStream) {
-    await resolved.streaming.finalizeStream(existingStream);
-    activeStreams.delete(msg.channelId);
-  }
+  // Atomically swap streams via eventLocks so no residual events from the
+  // previous response can sneak in between finalization and the new stream.
+  const evPrev = eventLocks.get(msg.channelId) ?? Promise.resolve();
+  const evTask = evPrev.then(async () => {
+    const existingStream = activeStreams.get(msg.channelId);
+    if (existingStream) {
+      await resolved.streaming.finalizeStream(existingStream);
+      activeStreams.delete(msg.channelId);
+    }
+    const newKey = await resolved.streaming.startStream(msg.channelId);
+    activeStreams.set(msg.channelId, newKey);
+  });
+  eventLocks.set(msg.channelId, evTask.catch(() => {}));
+  await evTask;
 
   await sessionManager.sendMidTurn(msg.channelId, text, msg.userId);
 
@@ -549,7 +585,7 @@ async function handleInboundMessage(
 
     switch (cmdResult.action) {
       case 'new_session': {
-        busyChannels.delete(msg.channelId);
+        markIdleImmediate(msg.channelId);
         const oldStreamKey = activeStreams.get(msg.channelId);
         if (oldStreamKey) {
           await streaming.cancelStream(oldStreamKey);
@@ -561,7 +597,7 @@ async function handleInboundMessage(
         break;
       }
       case 'stop_session': {
-        busyChannels.delete(msg.channelId);
+        markIdleImmediate(msg.channelId);
         const stopStreamKey = activeStreams.get(msg.channelId);
         if (stopStreamKey) {
           await streaming.cancelStream(stopStreamKey);
@@ -812,6 +848,39 @@ async function handleInboundMessage(
         }
         break;
       }
+
+      case 'skills': {
+        const skills = sessionManager.getSkillInfo(msg.channelId);
+        const mcpInfo = sessionManager.getMcpServerInfo(msg.channelId);
+        const lines: string[] = ['🧰 **Skills & Tools**', ''];
+
+        if (skills.length > 0) {
+          lines.push('**Skills**');
+          for (const s of skills) {
+            const desc = s.description ? ` — ${s.description}` : '';
+            lines.push(`• \`${s.name}\`${desc} _(${s.source})_`);
+          }
+          lines.push('');
+        }
+
+        if (mcpInfo.length > 0) {
+          lines.push('**MCP Servers**');
+          for (const s of mcpInfo) {
+            lines.push(`• \`${s.name}\` _(${s.source})_`);
+          }
+          lines.push('');
+        }
+
+        lines.push('**Copilot Bridge Tools**');
+        for (const t of BRIDGE_CUSTOM_TOOLS) lines.push(`• \`${t}\``);
+
+        if (skills.length === 0 && mcpInfo.length === 0) {
+          lines.push('', '_No skills or MCP servers configured. Add skills to `~/.copilot/skills/` or MCP servers to `~/.copilot/mcp-config.json`._');
+        }
+
+        await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
+        break;
+      }
     }
     return;
   }
@@ -841,26 +910,34 @@ async function handleInboundMessage(
     log.info(`Forwarding to Copilot: "${text.slice(0, 100)}"`);
     adapter.setTyping(msg.channelId).catch(() => {});
 
-    const existingStreamKey = activeStreams.get(msg.channelId);
-    if (existingStreamKey) {
-      await streaming.finalizeStream(existingStreamKey);
-      activeStreams.delete(msg.channelId);
-    }
-
+    // Atomically swap streams via eventLocks to prevent event interleaving
     const threadRoot = resolveThreadRoot(msg, threadRequested, channelConfig);
-    initialStreamPosted.add(msg.channelId);
-    const streamKey = await streaming.startStream(msg.channelId, threadRoot);
-    activeStreams.set(msg.channelId, streamKey);
+    const evPrev = eventLocks.get(msg.channelId) ?? Promise.resolve();
+    const evTask = evPrev.then(async () => {
+      const existingStreamKey = activeStreams.get(msg.channelId);
+      if (existingStreamKey) {
+        await streaming.finalizeStream(existingStreamKey);
+        activeStreams.delete(msg.channelId);
+      }
+      initialStreamPosted.add(msg.channelId);
+      const streamKey = await streaming.startStream(msg.channelId, threadRoot);
+      activeStreams.set(msg.channelId, streamKey);
+    });
+    eventLocks.set(msg.channelId, evTask.catch(() => {}));
+    await evTask;
 
     // Mark busy before send so mid-turn messages arriving during the await are steered
-    busyChannels.add(msg.channelId);
+    markBusy(msg.channelId);
 
     // Download any file attachments to .temp/ in the bot's workspace
     const sdkAttachments = await downloadAttachments(msg.attachments, msg.channelId, adapter);
 
     await sessionManager.sendMessage(msg.channelId, text, sdkAttachments.length > 0 ? sdkAttachments : undefined, msg.userId);
+    // Hold the channelLock until session.idle so queued work (scheduler, etc.)
+    // doesn't start a new stream while this response is still being streamed.
+    await waitForChannelIdle(msg.channelId);
   } catch (err) {
-    busyChannels.delete(msg.channelId);
+    markIdleImmediate(msg.channelId);
     log.error(`Error sending message for channel ${msg.channelId}:`, err);
     const streamKey = activeStreams.get(msg.channelId);
     if (streamKey) {
@@ -983,6 +1060,9 @@ async function handleSessionEvent(
 
   switch (formatted.type) {
     case 'content': {
+      // Content arriving means session is still active — cancel any idle debounce
+      cancelIdleDebounce(channelId);
+      if (!isBusy(channelId)) markBusy(channelId);
       // When response content starts, finalize the activity feed
       if (activityFeeds.has(channelId)) {
         await finalizeActivityFeed(channelId, adapter);
@@ -1027,6 +1107,8 @@ async function handleSessionEvent(
       break;
     }
     case 'tool_start':
+      cancelIdleDebounce(channelId);
+      if (!isBusy(channelId)) markBusy(channelId);
       if (verbose && formatted.content && !nudgePending.has(channelId)) {
         await appendActivityFeed(channelId, formatted.content, adapter);
       }
@@ -1037,7 +1119,7 @@ async function handleSessionEvent(
       break;
 
     case 'error':
-      busyChannels.delete(channelId);
+      markIdleImmediate(channelId);
       nudgePending.delete(channelId);
       if (streamKey) {
         await streaming.cancelStream(streamKey, formatted.content);
@@ -1060,7 +1142,7 @@ async function handleSessionEvent(
       // turn_end fires between tool cycles — DON'T finalize there or we get
       // duplicate "Working..." messages from auto-starting new streams.
       if (event.type === 'session.idle') {
-        busyChannels.delete(channelId);
+        markIdle(channelId);
         nudgePending.delete(channelId);
         await finalizeActivityFeed(channelId, adapter);
         initialStreamPosted.delete(channelId);
