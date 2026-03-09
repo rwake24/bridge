@@ -211,6 +211,12 @@ npm run install-service
 
 After installing, management commands are printed to the terminal.
 
+To remove the service:
+
+```bash
+npm run uninstall-service
+```
+
 ### Manual setup
 
 <details>
