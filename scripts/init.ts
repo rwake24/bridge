@@ -69,7 +69,7 @@ async function main() {
 
     const ping = await pingServer(mmUrl);
     printCheck(ping);
-    if (ping.status === 'pass') break;
+    if (ping.status === 'pass' || ping.status === 'warn') break;
     if (!await confirm('Try a different URL?')) {
       warn('Continuing with unverified URL.');
       break;

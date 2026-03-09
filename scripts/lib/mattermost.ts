@@ -34,12 +34,21 @@ export async function pingServer(baseUrl: string): Promise<CheckResult> {
   if (ok && data?.status === 'OK') {
     return { status: 'pass', label: `Mattermost: ${baseUrl}`, detail: 'reachable' };
   }
-  // 403 on /system/ping is normal — server is reachable but requires auth
-  if (status === 401 || status === 403) {
-    return { status: 'pass', label: `Mattermost: ${baseUrl}`, detail: 'reachable (auth required for ping, which is normal)' };
-  }
   if (status === 0) {
     return { status: 'fail', label: `Mattermost: ${baseUrl}`, detail: 'connection failed — check URL' };
+  }
+  // Distinguish Mattermost auth rejection from CDN/WAF blocking:
+  // Mattermost returns JSON; Cloudflare/CDN returns HTML or no JSON body
+  if (status === 401 || status === 403) {
+    if (data && typeof data === 'object' && ('status_code' in data || 'message' in data || 'id' in data)) {
+      // Mattermost JSON error response — server is reachable, just auth-gated
+      return { status: 'pass', label: `Mattermost: ${baseUrl}`, detail: 'reachable (ping requires auth on this server)' };
+    }
+    return {
+      status: 'warn',
+      label: `Mattermost: ${baseUrl}`,
+      detail: `HTTP ${status} — may be blocked by a CDN/firewall. Will verify with bot token.`,
+    };
   }
   return { status: 'fail', label: `Mattermost: ${baseUrl}`, detail: `HTTP ${status}` };
 }
