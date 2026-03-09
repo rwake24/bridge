@@ -242,8 +242,8 @@ async function main(): Promise<void> {
       if (isBusy(msg.channelId)) {
         handleMidTurnMessage(msg, sessionManager, platformName, botName)
           .catch(err => {
-            // Expected fallback (slash commands during busy) — debug level
-            const expected = err?.message === 'slash-command-while-busy';
+            // Expected fallbacks — debug level
+            const expected = err?.message === 'slash-command-while-busy' || err?.message === 'file-only-while-busy';
             if (expected) {
               log.debug(`Mid-turn fallback (${err.message}), routing to normal handler`);
             } else {
@@ -891,6 +891,7 @@ async function handleInboundMessage(
   }
 
   // Pending user input
+  // TODO: file-only messages (empty text + attachments) resolve input with empty string and drop files
   if (sessionManager.hasPendingUserInput(msg.channelId)) {
     sessionManager.resolveUserInput(msg.channelId, text);
     return;
