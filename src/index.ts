@@ -421,7 +421,7 @@ async function handleMidTurnMessage(
   if (channelConfig.triggerMode === 'mention' && !msg.mentionsBot && !msg.isDM) return;
 
   const text = stripBotMention(msg.text, channelConfig.bot);
-  if (!text) return;
+  if (!text && !msg.attachments?.length) return;
 
   // Pending user input — resolve directly (bypasses channelLock to avoid deadlock
   // since the lock is held by waitForChannelIdle which needs this to resolve first)
@@ -455,6 +455,11 @@ async function handleMidTurnMessage(
   // Non-permission slash commands go through the normal serialized path
   if (text.startsWith('/')) {
     throw new Error('slash-command-while-busy');
+  }
+
+  // File-only messages can't steer — queue them for normal processing
+  if (!text && msg.attachments?.length) {
+    throw new Error('file-only-while-busy');
   }
 
   log.info(`Mid-turn steering for ${msg.channelId.slice(0, 8)}...: "${text.slice(0, 100)}"`);
@@ -934,6 +939,16 @@ async function handleInboundMessage(
 
     // If no text but attachments, provide a minimal prompt so the model knows to look at them
     const prompt = text || (sdkAttachments.length > 0 ? 'See attached file(s).' : '');
+
+    // Guard: if both prompt and attachments are empty (all downloads failed), bail out
+    if (!prompt && sdkAttachments.length === 0) {
+      log.warn(`No text and no attachments for channel ${msg.channelId.slice(0, 8)}... — nothing to send`);
+      markIdleImmediate(msg.channelId);
+      const sk = activeStreams.get(msg.channelId);
+      if (sk) { await streaming.cancelStream(sk, 'Failed to download attachment(s).'); activeStreams.delete(msg.channelId); }
+      return;
+    }
+
     await sessionManager.sendMessage(msg.channelId, prompt, sdkAttachments.length > 0 ? sdkAttachments : undefined, msg.userId);
     // Hold the channelLock until session.idle so queued work (scheduler, etc.)
     // doesn't start a new stream while this response is still being streamed.
