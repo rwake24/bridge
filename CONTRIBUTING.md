@@ -4,7 +4,7 @@ First off, thank you for considering contributing! This project bridges GitHub C
 
 ## Submitting Changes
 
-Please send a [Pull Request](https://github.com/ChrisRomp/copilot-bridge/pull/new/main) with a clear description of what you've done. Before submitting:
+Please send a [Pull Request](https://github.com/ChrisRomp/copilot-bridge/compare) with a clear description of what you've done. Before submitting:
 
 1. **Type-check**: `npx tsc --noEmit`
 2. **Run tests**: `npm test`

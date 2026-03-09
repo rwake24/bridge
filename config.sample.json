@@ -7,7 +7,7 @@
 
       "botToken": "SINGLE_BOT_TOKEN",
 
-      "_comment_bots": "Multi-bot example (remove 'botToken' above if using this):",
+      "_comment_bots": "Multi-bot example (remove 'botToken' above and rename '_bots' to 'bots'):",
       "_bots": {
         "copilot": { "token": "BOT_TOKEN_1", "admin": true },
         "bob": { "token": "BOT_TOKEN_2", "agent": "bob-agent" }
