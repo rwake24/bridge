@@ -107,11 +107,3 @@ export async function getChannelInfo(baseUrl: string, token: string, channelId: 
   }
   return null;
 }
-
-export async function getBotTeams(baseUrl: string, token: string): Promise<Array<{ id: string; name: string; displayName: string }>> {
-  const { ok, data } = await mmFetch(baseUrl, '/users/me/teams', token);
-  if (ok && Array.isArray(data)) {
-    return data.map((t: any) => ({ id: t.id, name: t.name, displayName: t.display_name }));
-  }
-  return [];
-}

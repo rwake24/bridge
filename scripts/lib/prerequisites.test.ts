@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { checkNodeVersion, checkCopilotCLI, checkGitHubAuth } from './prerequisites.js';
 
 describe('prerequisites', () => {

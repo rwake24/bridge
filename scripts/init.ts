@@ -9,7 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
-import { ask, askRequired, askSecret, confirm, choose, closePrompts } from './lib/prompts.js';
+import { askRequired, askSecret, confirm, choose, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
@@ -45,7 +45,7 @@ async function main() {
     }
   }
 
-  // --- Step 2: Check for existing config ---
+  // --- Check for existing config ---
   if (configExists()) {
     blank();
     warn(`Existing config found at ${getConfigPath()}`);
@@ -56,7 +56,7 @@ async function main() {
     }
   }
 
-  // --- Step 3: Mattermost connection ---
+  // --- Step 2: Mattermost connection ---
   heading('Step 2: Mattermost Connection');
   info('Connect to your Mattermost instance. You\'ll need the URL and a bot token.');
   dim('Create bot accounts in Mattermost: System Console → Integrations → Bot Accounts\n');
@@ -76,7 +76,7 @@ async function main() {
     }
   }
 
-  // --- Step 4: Bot tokens ---
+  // --- Step 3: Bot configuration ---
   heading('Step 3: Bot Configuration');
 
   const bots: BotEntry[] = [];
@@ -114,7 +114,7 @@ async function main() {
     }
   }
 
-  // --- Step 5: Channel setup ---
+  // --- Step 4: Channel configuration ---
   heading('Step 4: Channel Configuration');
   info('Direct messages work automatically — no config needed.');
   info('Group channels need their channel ID and a working directory.\n');
@@ -132,8 +132,8 @@ async function main() {
 
     let channelName: string | undefined;
     if (access.status === 'pass') {
-      const info = await getChannelInfo(mmUrl, primaryBot.token, channelId);
-      channelName = info?.displayName || info?.name;
+      const chInfo = await getChannelInfo(mmUrl, primaryBot.token, channelId);
+      channelName = chInfo?.displayName || chInfo?.name;
     }
 
     const workDir = await askRequired('Working directory (absolute path for this channel\'s workspace)');
@@ -169,7 +169,7 @@ async function main() {
     info('No group channels configured. DMs will still work automatically.');
   }
 
-  // --- Step 6: Defaults ---
+  // --- Step 5: Defaults ---
   heading('Step 5: Defaults');
   dim('These can be changed later in config.json or via chat commands.\n');
 
@@ -195,7 +195,7 @@ async function main() {
   defaults.threadedReplies = await confirm('Reply in threads by default?', true);
   defaults.verbose = await confirm('Verbose mode (show tool calls)?', false);
 
-  // --- Step 7: Generate config ---
+  // --- Step 6: Generate config ---
   heading('Step 6: Generate Config');
 
   const config = buildConfig({ mmUrl, bots, channels, defaults });
@@ -208,7 +208,7 @@ async function main() {
     fs.mkdirSync(workspacesDir, { recursive: true });
   }
 
-  // --- Step 8: Service setup ---
+  // --- Step 7: Service setup ---
   heading('Step 7: Service Setup (Optional)');
 
   const osPlatform = detectPlatform();

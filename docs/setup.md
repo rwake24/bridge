@@ -112,7 +112,7 @@ With an empty `channels` array, the bridge still works — it auto-discovers DM 
 }
 ```
 
-See [Configuration](docs/configuration.md) for the full reference.
+See [Configuration](configuration.md) for the full reference.
 
 #### 3. Create Mattermost bot accounts
 

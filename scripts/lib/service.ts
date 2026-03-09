@@ -1,6 +1,6 @@
 /**
  * OS-specific service file generation and installation.
- * Supports macOS (launchd) and Linux (systemd user units).
+ * Supports macOS (launchd) and Linux (systemd system-level units).
  */
 
 import * as fs from 'node:fs';
@@ -137,30 +137,6 @@ export function getSystemdInstallPath(): string {
   return '/etc/systemd/system/copilot-bridge.service';
 }
 
-export function installSystemd(unitContent: string): { installed: boolean; path: string; error?: string; manualSteps?: string } {
-  const installPath = getSystemdInstallPath();
-  const tmpPath = path.join(os.tmpdir(), 'copilot-bridge.service');
-  try {
-    fs.writeFileSync(tmpPath, unitContent, 'utf-8');
-    execSync(`sudo cp "${tmpPath}" "${installPath}"`, { encoding: 'utf-8', stdio: 'inherit' });
-    fs.unlinkSync(tmpPath);
-    execSync('sudo systemctl daemon-reload', { encoding: 'utf-8' });
-    execSync('sudo systemctl enable copilot-bridge', { encoding: 'utf-8' });
-    execSync('sudo systemctl start copilot-bridge', { encoding: 'utf-8' });
-    return { installed: true, path: installPath };
-  } catch (err) {
-    // Clean up temp file if it exists
-    try { fs.unlinkSync(tmpPath); } catch {}
-    const manual = [
-      'To install manually:',
-      `  sudo cp ${tmpPath} ${installPath}`,
-      '  sudo systemctl daemon-reload',
-      '  sudo systemctl enable --now copilot-bridge',
-    ].join('\n');
-    return { installed: false, path: installPath, error: String(err), manualSteps: manual };
-  }
-}
-
 // --- Service status ---
 
 export function getServiceStatus(): { running: boolean; pid?: number; detail: string } {
@@ -182,6 +158,7 @@ export function getServiceStatus(): { running: boolean; pid?: number; detail: st
 
   if (platform === 'linux') {
     try {
+      // systemctl is-active exits non-zero for inactive/unknown services
       const output = execSync('systemctl is-active copilot-bridge 2>/dev/null', { encoding: 'utf-8' }).trim();
       if (output === 'active') {
         try {
@@ -192,7 +169,13 @@ export function getServiceStatus(): { running: boolean; pid?: number; detail: st
         }
       }
       return { running: false, detail: `systemd: ${output}` };
-    } catch {
+    } catch (err) {
+      // Exit code 3 = inactive/dead (unit exists but not running)
+      // Exit code 4 = no such unit file
+      const stderr = err instanceof Error && 'stdout' in err ? String((err as { stdout: unknown }).stdout).trim() : '';
+      if (stderr === 'inactive' || stderr === 'failed' || stderr === 'activating' || stderr === 'deactivating') {
+        return { running: false, detail: `systemd: ${stderr}` };
+      }
       return { running: false, detail: 'systemd: not installed' };
     }
   }

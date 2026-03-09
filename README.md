@@ -48,7 +48,7 @@ For DMs, that's it — the bridge auto-discovers DM channels for each bot. For g
 
 ### Running as a service
 
-See the [Setup Guide — Running as a Service](docs/setup.md#running-as-a-service) for macOS (launchd) and Linux (systemd) instructions, or run `npm run init` to install automatically.
+See the [Setup Guide — Running as a Service](docs/setup.md#running-as-a-service) for macOS (launchd) and Linux (systemd) instructions, or run `npm run install-service` to install automatically.
 
 ## Chat Commands
 

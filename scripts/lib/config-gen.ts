@@ -20,8 +20,6 @@ export interface ChannelEntry {
   platform: string;
   bot: string;
   workingDirectory: string;
-  triggerMode?: string;
-  threadedReplies?: boolean;
 }
 
 export interface ConfigDefaults {

@@ -9,10 +9,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { heading, printCheck, printSummary, info, blank, dim, type CheckResult } from './lib/output.js';
+import { heading, printCheck, printSummary, info, dim, type CheckResult } from './lib/output.js';
 import { runAllPrereqs } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess } from './lib/mattermost.js';
-import { getConfigPath, getConfigDir, readExistingConfig } from './lib/config-gen.js';
+import { getConfigPath, getConfigDir } from './lib/config-gen.js';
 import { detectPlatform, getServiceStatus } from './lib/service.js';
 
 async function main() {
@@ -227,9 +227,9 @@ async function main() {
   } else {
     const platform = detectPlatform();
     const serviceHint = platform === 'macos'
-      ? 'install with: npm run init (or manually via launchd)'
+      ? 'install with: npm run install-service'
       : platform === 'linux'
-        ? 'install with: npm run init (or manually via systemd)'
+        ? 'install with: npm run install-service (requires sudo)'
         : 'start with: npm run dev (or npm start)';
     const result: CheckResult = { status: 'warn', label: 'Service not running', detail: serviceHint };
     printCheck(result);

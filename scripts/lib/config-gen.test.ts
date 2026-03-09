@@ -84,8 +84,8 @@ describe('config-gen', () => {
       expect(Object.keys(config.defaults || {})).toHaveLength(0);
     });
 
-    it('strips trailing slash from URL', () => {
-      // URL cleaning happens at the init wizard level, but buildConfig stores as-is
+    it('stores URL as-is from input', () => {
+      // URL cleaning happens at the init wizard level; buildConfig stores as provided
       const config = buildConfig({
         mmUrl: 'https://mm.test',
         bots: [{ name: 'bot', token: 'tok', admin: false }],
