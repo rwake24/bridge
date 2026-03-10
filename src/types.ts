@@ -21,6 +21,7 @@ export interface ChannelConfig {
   bot?: string;               // which bot identity to use (key into platform.bots)
   agent?: string | null;
   model?: string;
+  fallbackModels?: string[];
   triggerMode: 'mention' | 'all';
   threadedReplies: boolean;
   verbose: boolean;
@@ -47,6 +48,7 @@ export interface AppConfig {
     threadedReplies: boolean;
     verbose: boolean;
     permissionMode: 'interactive' | 'autopilot';
+    fallbackModels?: string[];
   };
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
