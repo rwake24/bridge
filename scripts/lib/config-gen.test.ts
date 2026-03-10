@@ -51,7 +51,6 @@ describe('config-gen', () => {
       const config = buildConfig({ mmUrl: 'https://mm.test', bots, channels });
 
       expect(config.platforms.mattermost.bots).toBeDefined();
-      expect(config.platforms.mattermost.bots).toBeDefined();
       expect(config.platforms.mattermost.bots!['copilot'].token).toBe('tok1');
       expect(config.platforms.mattermost.bots!['copilot'].admin).toBe(true);
       expect(config.platforms.mattermost.bots!['alice'].agent).toBe('alice-agent');

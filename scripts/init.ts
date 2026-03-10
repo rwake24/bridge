@@ -240,28 +240,7 @@ async function main() {
   info('DMs: enabled automatically');
   blank();
 
-  // Detect running service and suggest restart
-  const serviceStatus = getServiceStatus();
-  if (serviceStatus.running) {
-    warn('The bridge service is currently running. Restart it to apply the new config:');
-    const osPlatformDone = detectPlatform();
-    if (osPlatformDone === 'macos') {
-      dim('  launchctl kickstart -k gui/$(id -u)/com.copilot-bridge');
-    } else if (osPlatformDone === 'linux') {
-      dim('  sudo systemctl restart copilot-bridge');
-    }
-    blank();
-  } else if (serviceStatus.detail !== 'unsupported platform' && !serviceStatus.detail.includes('not installed') && !serviceStatus.detail.includes('not loaded')) {
-    // Service is installed but not running
-    info('The bridge service is installed but not running. Start it with:');
-    const osPlatformDone = detectPlatform();
-    if (osPlatformDone === 'macos') {
-      dim('  launchctl kickstart gui/$(id -u)/com.copilot-bridge');
-    } else if (osPlatformDone === 'linux') {
-      dim('  sudo systemctl start copilot-bridge');
-    }
-    blank();
-  } else {
+  const showNextSteps = () => {
     dim('Next steps:');
     if (isCli) {
       dim('  copilot-bridge check            Validate your setup');
@@ -275,6 +254,34 @@ async function main() {
       dim('  npm start                Start production server');
     }
     blank();
+  };
+
+  // Detect running service and suggest restart
+  const serviceStatus = getServiceStatus();
+  if (serviceStatus.running) {
+    warn('The bridge service is currently running. Restart it to apply the new config:');
+    if (osPlatform === 'macos') {
+      dim('  launchctl kickstart -k gui/$(id -u)/com.copilot-bridge');
+    } else if (osPlatform === 'linux') {
+      dim('  sudo systemctl restart copilot-bridge');
+    }
+    blank();
+  } else if (serviceStatus.running === false && serviceStatus.pid !== undefined || serviceStatus.detail.startsWith('launchd:') || serviceStatus.detail.startsWith('systemd:')) {
+    // Service is known to the OS but not running
+    if (serviceStatus.detail.includes('not installed') || serviceStatus.detail.includes('not loaded')) {
+      // Not actually installed — show normal next steps
+      showNextSteps();
+    } else {
+      info('The bridge service is installed but not running. Start it with:');
+      if (osPlatform === 'macos') {
+        dim('  launchctl kickstart gui/$(id -u)/com.copilot-bridge');
+      } else if (osPlatform === 'linux') {
+        dim('  sudo systemctl start copilot-bridge');
+      }
+      blank();
+    }
+  } else {
+    showNextSteps();
   }
 
   closePrompts();
