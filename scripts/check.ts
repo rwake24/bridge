@@ -38,7 +38,9 @@ async function main() {
     const result: CheckResult = { status: 'fail', label: 'Config file', detail: `not found at ${configPath}` };
     printCheck(result);
     results.push(result);
-    info('Run "npm run init" to create a config file.');
+    info(process.env.COPILOT_BRIDGE_CLI === '1'
+      ? 'Run "copilot-bridge init" to create a config file.'
+      : 'Run "npm run init" to create a config file.');
     printSummary(results);
     process.exit(results.some(r => r.status === 'fail') ? 1 : 0);
   }
@@ -225,12 +227,13 @@ async function main() {
     printCheck(result);
     results.push(result);
   } else {
+    const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
     const platform = detectPlatform();
     const serviceHint = platform === 'macos'
-      ? 'install with: npm run install-service'
+      ? `install with: ${isCli ? 'copilot-bridge install-service' : 'npm run install-service'}`
       : platform === 'linux'
-        ? 'install with: npm run install-service (requires sudo)'
-        : 'start with: npm run dev (or npm start)';
+        ? `install with: ${isCli ? 'copilot-bridge install-service' : 'npm run install-service'} (requires sudo)`
+        : `start with: ${isCli ? 'copilot-bridge start' : 'npm run dev (or npm start)'}`;
     const result: CheckResult = { status: 'warn', label: 'Service not running', detail: serviceHint };
     printCheck(result);
     results.push(result);

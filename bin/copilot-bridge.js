@@ -52,6 +52,7 @@ if (!script) {
 const child = spawn(process.execPath, ['--import', 'tsx/esm', script, ...process.argv.slice(3)], {
   stdio: 'inherit',
   cwd: root,
+  env: { ...process.env, COPILOT_BRIDGE_CLI: '1' },
 });
 
 child.on('exit', (code) => process.exit(code ?? 1));

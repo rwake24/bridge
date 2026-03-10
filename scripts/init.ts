@@ -232,12 +232,21 @@ async function main() {
   if (channels.length > 0) info(`Channels: ${channels.length} configured`);
   info('DMs: enabled automatically');
   blank();
+
+  // Detect if running via the copilot-bridge CLI (global install)
+  const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
   dim('Next steps:');
-  dim('  npm run dev              Start in development mode (watch)');
-  dim('  npm run check            Validate your setup');
-  dim('  npm run install-service  Install as a system service');
-  dim('  npm run build            Build for production');
-  dim('  npm start                Start production server');
+  if (isCli) {
+    dim('  copilot-bridge check            Validate your setup');
+    dim('  copilot-bridge start            Start the bridge');
+    dim('  copilot-bridge install-service  Install as a system service');
+  } else {
+    dim('  npm run dev              Start in development mode (watch)');
+    dim('  npm run check            Validate your setup');
+    dim('  npm run install-service  Install as a system service');
+    dim('  npm run build            Build for production');
+    dim('  npm start                Start production server');
+  }
   blank();
 
   closePrompts();

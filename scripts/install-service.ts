@@ -35,7 +35,9 @@ function main() {
 
     const distPath = path.join(bridgePath, 'dist', 'index.js');
     if (!fs.existsSync(distPath)) {
-      fail('dist/index.js not found. Run "npm run build" first.');
+      fail(process.env.COPILOT_BRIDGE_CLI === '1'
+        ? 'dist/index.js not found. Package may be corrupted — try reinstalling.'
+        : 'dist/index.js not found. Run "npm run build" first.');
       process.exit(1);
     }
 
@@ -67,10 +69,11 @@ function main() {
     info('Linux detected — installing systemd service (system-scoped).');
     dim('The service starts at boot and restarts on crash.\n');
 
-    // Check if dist/index.js exists
     const distPath = path.join(bridgePath, 'dist', 'index.js');
     if (!fs.existsSync(distPath)) {
-      fail('dist/index.js not found. Run "npm run build" first.');
+      fail(process.env.COPILOT_BRIDGE_CLI === '1'
+        ? 'dist/index.js not found. Package may be corrupted — try reinstalling.'
+        : 'dist/index.js not found. Run "npm run build" first.');
       process.exit(1);
     }
 
@@ -115,7 +118,9 @@ function main() {
 
   } else {
     fail('Unsupported platform for automatic service install.');
-    info('Run the bridge manually: npm run dev (development) or npm start (production)');
+    info(process.env.COPILOT_BRIDGE_CLI === '1'
+      ? 'Run the bridge manually: copilot-bridge start'
+      : 'Run the bridge manually: npm run dev (development) or npm start (production)');
     process.exit(1);
   }
 }
