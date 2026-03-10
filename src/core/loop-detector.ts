@@ -13,7 +13,7 @@ export const WINDOW_MS = 60_000;
 export const MAX_HISTORY = 50;
 
 /**
- * Multiplier applied to MAX_IDENTICAL_ when the count reaches thisCALLS 
+ * Multiplier applied to MAX_IDENTICAL_CALLS. When the count reaches this
  * threshold, the loop is considered critical and the session should be destroyed.
  */
 export const CRITICAL_MULTIPLIER = 2;
@@ -32,7 +32,7 @@ export interface LoopDetectionResult {
 
 /**
  * Tracks recent tool calls per channel and detects when the same tool is
- * called with identical arguments  a sign the agent is stuck.repeatedly 
+ * called with identical arguments repeatedly -- a sign the agent is stuck.
  */
 export class LoopDetector {
   private history = new Map<string, ToolCall[]>();
@@ -105,16 +105,21 @@ export class LoopDetector {
 }
 
 /**
- * JSON.stringify with sorted keys so equivalent objects hash identically
- * regardless of property insertion order.
+ * Canonical JSON.stringify with sorted object keys so equivalent objects hash
+ * identically regardless of property insertion order, while preserving
+ * proper JSON quoting and escaping for all values.
  */
 function stableStringify(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value !== 'object') return String(value);
-  if (Array.isArray(value)) {
-    return '[' + value.map(stableStringify).join(',') + ']';
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+  const json = JSON.stringify(value, (_key, val) => {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      const obj = val as Record<string, unknown>;
+      const sorted: Record<string, unknown> = {};
+      for (const key of Object.keys(obj).sort()) {
+        sorted[key] = obj[key];
+      }
+      return sorted;
+    }
+    return val;
+  });
+  return json === undefined ? 'undefined' : json;
 }

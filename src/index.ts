@@ -10,7 +10,7 @@ import { getChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesFor
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
 import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
-import { LoopDetector } from './core/loop-detector.js';
+import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { getTaskHistory } from './state/store.js';
 import { createLogger } from './logger.js';
 import fs from 'node:fs';
@@ -48,6 +48,10 @@ const botStreamers = new Map<string, StreamingHandler>();
 
 // Per-channel tool call loop detection
 const loopDetector = new LoopDetector();
+
+// Track last known sessionId per channel for implicit session change detection
+const lastSessionIds = new Map<string, string>();
+
 /** Format a date as a relative age string (e.g., "2h ago", "3d ago"). */
 function formatAge(date: Date): string {
   const ms = Date.now() - new Date(date).getTime();
@@ -211,7 +215,7 @@ async function main(): Promise<void> {
   sessionManager.onSessionEvent((sessionId, channelId, event) => {
     const prev = eventLocks.get(channelId) ?? Promise.resolve();
     const next = prev.then(() =>
-      handleSessionEvent(channelId, event, sessionManager)
+      handleSessionEvent(sessionId, channelId, event, sessionManager)
         .catch(err => log.error(`Unhandled error in event handler:`, err))
     );
     eventLocks.set(channelId, next);
@@ -1107,10 +1111,18 @@ async function handleReaction(
 // --- Session Event Handling ---
 
 async function handleSessionEvent(
+  sessionId: string,
   channelId: string,
   event: any,
   sessionManager: SessionManager,
 ): Promise<void> {
+  // Reset loop detector when the session changes (e.g., model fallback creates new session)
+  const prevSession = lastSessionIds.get(channelId);
+  if (prevSession && prevSession !== sessionId) {
+    loopDetector.reset(channelId);
+  }
+  lastSessionIds.set(channelId, sessionId);
+
   if (event.type === 'session.error' || event.type?.includes('error')) {
     log.error(`SDK error event: ${JSON.stringify(event).slice(0, 1000)}`);
   }
@@ -1259,8 +1271,8 @@ async function handleSessionEvent(
           markIdleImmediate(channelId);
           await sessionManager.newSession(channelId);
           break;
-        } else if (loop.isLoop) {
-          // First warning — notify the user but let the session continue
+        } else if (loop.isLoop && loop.count === MAX_IDENTICAL_CALLS) {
+          // Warn once at the threshold, not on every subsequent call
           await adapter.sendMessage(
             channelId,
             `⚠️ **Possible loop**: \`${toolName}\` called ${loop.count} times with the same arguments. ` +
