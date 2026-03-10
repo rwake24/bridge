@@ -3,11 +3,14 @@
 {
 	"name": "Node.js & TypeScript",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/typescript-node:4-24-trixie",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
 	"features": {
 		"ghcr.io/devcontainers/features/copilot-cli:1": {},
-		"ghcr.io/devcontainers/features/github-cli:1": {}
+		"ghcr.io/devcontainers/features/github-cli:1": {},
+		"ghcr.io/devcontainers/features/node:1": {}
 	},
+	"runArgs": ["--cgroupns=host"],
+	"mounts": ["type=bind,source=/sys/fs/cgroup,target=/sys/fs/cgroup"]
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
@@ -16,7 +19,7 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "git lfs uninstall || true; npm install"
+	// "postCreateCommand": "git lfs uninstall || true; npm install"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
