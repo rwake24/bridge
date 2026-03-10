@@ -21,6 +21,7 @@ import {
   type InterAgentContext,
 } from './inter-agent.js';
 import { createLogger } from '../logger.js';
+import { tryWithFallback, isModelError } from './model-fallback.js';
 import type { McpServerInfo } from './command-handler.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
@@ -549,6 +550,16 @@ export class SessionManager {
       const msg = String(err?.message ?? err);
       log.error(`Send failed for session ${sessionId}:`, msg);
 
+      // If this is a model-specific error, try creating a new session with
+      // fallback models instead of retrying the same model
+      if (isModelError(err)) {
+        log.info(`Model error detected — creating new session with fallback for channel ${channelId}...`);
+        const newSessionId = await this.newSession(channelId);
+        const newSession = this.bridge.getSession(newSessionId);
+        if (!newSession) throw new Error(`New session ${newSessionId} not found`);
+        return newSession.send(sendOpts);
+      }
+
       // Try to reconnect to the same session (CLI subprocess may have restarted)
       try {
         log.info(`Attempting to re-attach session ${sessionId}...`);
@@ -565,7 +576,7 @@ export class SessionManager {
         log.warn(`Re-attach failed:`, retryErr?.message ?? retryErr);
       }
 
-      // Last resort: create a new session
+      // Last resort: create a new session (handles fallback via createNewSession)
       log.info(`Creating new session for channel ${channelId}...`);
       const newSessionId = await this.newSession(channelId);
       const newSession = this.bridge.getSession(newSessionId);
@@ -826,19 +837,54 @@ export class SessionManager {
     const skillDirectories = discoverSkillDirectories(workingDirectory);
     const customTools = this.buildCustomTools(channelId);
 
-    const session = await withWorkspaceEnv(workingDirectory, () =>
-      this.bridge.createSession({
-        model: prefs.model,
-        workingDirectory,
-        configDir: defaultConfigDir,
-        reasoningEffort: reasoningEffort ?? undefined,
-        mcpServers: this.resolveMcpServers(workingDirectory),
-        skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
-        onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
-        onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
-        tools: customTools.length > 0 ? customTools : undefined,
-      })
+    // Resolve fallback configuration
+    const configChannel = getChannelConfig(channelId);
+    const configFallbacks = configChannel.fallbackModels ?? getConfig().defaults.fallbackModels;
+
+    // Fetch available models for fallback chain (best-effort — don't block on failure)
+    let availableModels: string[] = [];
+    try {
+      const models = await this.bridge.listModels();
+      availableModels = models.map(m => m.id);
+    } catch {
+      log.warn('Failed to fetch model list for fallback resolution');
+    }
+
+    const createWithModel = async (model: string) => {
+      return withWorkspaceEnv(workingDirectory, () =>
+        this.bridge.createSession({
+          model,
+          workingDirectory,
+          configDir: defaultConfigDir,
+          reasoningEffort: reasoningEffort ?? undefined,
+          mcpServers: this.resolveMcpServers(workingDirectory),
+          skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+          onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
+          onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
+          tools: customTools.length > 0 ? customTools : undefined,
+        })
+      );
+    };
+
+    const { result: session, usedModel, didFallback } = await tryWithFallback(
+      prefs.model,
+      availableModels,
+      configFallbacks,
+      createWithModel,
     );
+
+    if (didFallback) {
+      log.info(`Model fallback: "${prefs.model}" → "${usedModel}" for channel ${channelId}`);
+      setChannelPrefs(channelId, { model: usedModel });
+
+      // Emit a user-visible warning via session event
+      this.eventHandler?.(session.sessionId, channelId, {
+        type: 'assistant.message',
+        data: {
+          message: `⚠️ Model \`${prefs.model}\` is unavailable. Switched to \`${usedModel}\`.`,
+        },
+      });
+    }
 
     const sessionId = session.sessionId;
     this.channelSessions.set(channelId, sessionId);
@@ -847,7 +893,7 @@ export class SessionManager {
 
     this.attachSessionEvents(session, channelId);
 
-    log.info(`Created session ${sessionId} for channel ${channelId}`);
+    log.info(`Created session ${sessionId} for channel ${channelId} (model: ${usedModel})`);
     return sessionId;
   }
 
