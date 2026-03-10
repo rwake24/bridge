@@ -78,11 +78,11 @@ When a model returns a capacity, rate limit, or availability error, `model-fallb
 
 1. `parseModelId()` extracts provider/family/version from model IDs
 2. `STATIC_FALLBACK_MAP` defines explicit chains for known models (e.g., opus 4.6 → opus 4.5 → sonnet 4.6)
-3. `buildFallbackChain()` merges config overrides (`fallbackModels`) with auto-detected chains, filtered against available models
+3. `buildFallbackChain()` merges config overrides (`fallbackModels`) with auto-detected chains, filtered against available models (when `listModels()` fails and the available list is empty, config fallbacks are included unfiltered so the user's explicit preferences still apply)
 4. `tryWithFallback()` wraps session creation; on model error, tries each fallback in order
 5. `sendMessage()` in session-manager.ts has its own fallback loop for send-time failures
 
-The working model is saved to channel prefs and the user sees a ⚠️ notification.
+The working model is saved to channel prefs and a ⚠️ notification is emitted as a synthetic `assistant.message` event with `data.content`.
 
 ### Loop Detection
 
