@@ -56,7 +56,7 @@ export function generateLaunchdPlist(config: LaunchdConfig): string {
     <array>
         <string>${npxPath}</string>
         <string>tsx</string>
-        <string>src/index.ts</string>
+        <string>dist/index.js</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -114,7 +114,7 @@ export interface SystemdConfig {
 }
 
 export function generateSystemdUnit(config: SystemdConfig): string {
-  const nodePath = getNodePath();
+  const npxPath = path.join(path.dirname(getNodePath()), 'npx');
   return `[Unit]
 Description=Copilot Bridge
 After=network.target
@@ -122,7 +122,7 @@ After=network.target
 [Service]
 Type=simple
 User=${config.user}
-ExecStart=${nodePath} ${config.bridgePath}/dist/index.js
+ExecStart=${npxPath} tsx ${config.bridgePath}/dist/index.js
 WorkingDirectory=${config.bridgePath}
 Environment=HOME=${config.homePath}
 Environment=PATH=${getSystemPath()}

@@ -46,7 +46,7 @@ describe('service', () => {
       expect(plist).toContain('<key>RunAtLoad</key>');
       expect(plist).toContain('<key>KeepAlive</key>');
       expect(plist).toContain('tsx');
-      expect(plist).toContain('src/index.ts');
+      expect(plist).toContain('dist/index.js');
     });
   });
 
@@ -63,6 +63,7 @@ describe('service', () => {
       expect(unit).toContain('[Install]');
       expect(unit).toContain('Copilot Bridge');
       expect(unit).toContain('/home/test/copilot-bridge');
+      expect(unit).toContain('tsx');
       expect(unit).toContain('dist/index.js');
       expect(unit).toContain('Restart=always');
       expect(unit).toContain('WantedBy=multi-user.target');

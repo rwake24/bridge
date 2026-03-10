@@ -262,7 +262,7 @@ sudo cp scripts/copilot-bridge.service /etc/systemd/system/
 ```
 
 Edit `/etc/systemd/system/copilot-bridge.service`:
-- `ExecStart` → path to `node` and your `dist/index.js`
+- `ExecStart` → path to `npx tsx` and your `dist/index.js`
 - `WorkingDirectory` → your copilot-bridge clone path
 - Add `User=youruser` under `[Service]`
 - `HOME` → that user's home directory

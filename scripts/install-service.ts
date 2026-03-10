@@ -33,6 +33,12 @@ function main() {
     info('macOS detected — installing launchd service.');
     dim('The service auto-starts at login and restarts on crash.\n');
 
+    const distPath = path.join(bridgePath, 'dist', 'index.js');
+    if (!fs.existsSync(distPath)) {
+      fail('dist/index.js not found. Run "npm run build" first.');
+      process.exit(1);
+    }
+
     const plist = generateLaunchdPlist({
       label: 'com.copilot-bridge',
       bridgePath,
