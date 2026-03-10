@@ -4,12 +4,6 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-    inputs:
-      publish_dev:
-        description: 'Publish a dev build to npm (tagged "dev")'
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: read
