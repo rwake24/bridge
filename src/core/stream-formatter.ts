@@ -23,6 +23,12 @@ export function formatEvent(event: any): FormattedEvent | null {
         verbose: false,
       };
 
+    // Suppress thinking/reasoning events — they cause message churn if
+    // streamed into the main content and then removed.
+    case 'assistant.reasoning':
+    case 'assistant.reasoning_delta':
+      return null;
+
     case 'tool.execution_start': {
       const toolName = event.data?.toolName ?? event.data?.name ?? 'unknown';
       const args = event.data?.arguments ?? {};

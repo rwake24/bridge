@@ -1189,19 +1189,16 @@ async function handleSessionEvent(
         await finalizeActivityFeed(channelId, adapter);
       }
       // In verbose mode with an active "Working..." stream that hasn't received
-      // content yet, delete it and start a new stream so the response posts
-      // below the activity feed (no scroll-back).
+      // content yet, update it in place instead of deleting and recreating.
+      // This avoids visible message deletion/churn in the chat.
       if (verbose && streamKey) {
         const streamContent = streaming.getStreamContent(streamKey);
         if (streamContent !== undefined && streamContent === '') {
-          const threadRootId = streaming.getStreamThreadRootId(streamKey);
-          await streaming.deleteStream(streamKey);
-          activeStreams.delete(channelId);
-          const initialContent = event.type === 'assistant.message'
-            ? formatted.content
-            : (formatted.content || undefined);
-          const newKey = await streaming.startStream(channelId, threadRootId, initialContent);
-          activeStreams.set(channelId, newKey);
+          if (event.type === 'assistant.message') {
+            streaming.replaceContent(streamKey, formatted.content);
+          } else if (formatted.content) {
+            streaming.appendDelta(streamKey, formatted.content);
+          }
           adapter.setTyping(channelId).catch(() => {});
           break;
         }
