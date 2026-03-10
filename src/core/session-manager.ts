@@ -21,7 +21,7 @@ import {
   type InterAgentContext,
 } from './inter-agent.js';
 import { createLogger } from '../logger.js';
-import { tryWithFallback, isModelError } from './model-fallback.js';
+import { tryWithFallback, isModelError, getFallbackChain } from './model-fallback.js';
 import type { McpServerInfo } from './command-handler.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
@@ -550,14 +550,61 @@ export class SessionManager {
       const msg = String(err?.message ?? err);
       log.error(`Send failed for session ${sessionId}:`, msg);
 
-      // If this is a model-specific error, try creating a new session with
-      // fallback models instead of retrying the same model
+      // If this is a model-specific error, switch the model before creating
+      // a new session so the fallback model is used for both creation and send
       if (isModelError(err)) {
-        log.info(`Model error detected — creating new session with fallback for channel ${channelId}...`);
-        const newSessionId = await this.newSession(channelId);
-        const newSession = this.bridge.getSession(newSessionId);
-        if (!newSession) throw new Error(`New session ${newSessionId} not found`);
-        return newSession.send(sendOpts);
+        log.info(`Model error detected — switching to fallback model for channel ${channelId}...`);
+        const prefs = this.getEffectivePrefs(channelId);
+        const configChannel = getChannelConfig(channelId);
+        const configFallbacks = configChannel.fallbackModels ?? getConfig().defaults.fallbackModels;
+
+        let availableModels: string[] = [];
+        try {
+          const models = await this.bridge.listModels();
+          availableModels = models.map(m => m.id);
+        } catch { /* best-effort */ }
+
+        const availableSet = new Set(availableModels);
+        const autoChain = getFallbackChain(prefs.model, availableModels);
+        let chain: string[];
+        if (configFallbacks && configFallbacks.length > 0) {
+          const configSet = new Set(configFallbacks);
+          chain = [
+            ...configFallbacks.filter(m => m !== prefs.model && availableSet.has(m)),
+            ...autoChain.filter(m => !configSet.has(m)),
+          ];
+        } else {
+          chain = autoChain;
+        }
+
+        // Try each fallback: create session + send
+        let lastError: any = err;
+        for (const fallbackModel of chain) {
+          try {
+            log.info(`Trying send with fallback model "${fallbackModel}"...`);
+            setChannelPrefs(channelId, { model: fallbackModel });
+            const newSessionId = await this.newSession(channelId);
+            const newSession = this.bridge.getSession(newSessionId);
+            if (!newSession) continue;
+            const messageId = await newSession.send(sendOpts);
+
+            log.info(`Model fallback on send: "${prefs.model}" → "${fallbackModel}" for channel ${channelId}`);
+            this.eventHandler?.(newSession.sessionId, channelId, {
+              type: 'assistant.message',
+              data: {
+                message: `⚠️ Model \`${prefs.model}\` is unavailable. Switched to \`${fallbackModel}\`.`,
+              },
+            });
+            return messageId;
+          } catch (fallbackErr: any) {
+            log.warn(`Fallback model "${fallbackModel}" also failed on send: ${fallbackErr?.message ?? fallbackErr}`);
+            lastError = fallbackErr;
+          }
+        }
+
+        // If no fallback worked, restore original model pref and throw
+        setChannelPrefs(channelId, { model: prefs.model });
+        throw lastError;
       }
 
       // Try to reconnect to the same session (CLI subprocess may have restarted)

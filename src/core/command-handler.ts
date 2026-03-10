@@ -85,7 +85,7 @@ export function resolveModel(input: string, models: ModelInfo[]): { model: Model
 /** Pick the best model from ambiguous candidates. Prefers shorter IDs and closer matches. */
 function pickBestMatch(input: string, candidates: ModelInfo[]): ModelInfo {
   return candidates.sort((a, b) => {
-    // Prefer exact id prefix match (e.g., "opus" matching "claude-opus-4.6" not "claude-opus-4.6-1m")
+    // Prefer exact id prefix match (e.g., "opus" matching base model over extended variants)
     const aStartsId = a.id.toLowerCase().endsWith(input) ? 1 : 0;
     const bStartsId = b.id.toLowerCase().endsWith(input) ? 1 : 0;
     if (aStartsId !== bStartsId) return bStartsId - aStartsId;

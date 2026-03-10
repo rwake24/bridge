@@ -17,14 +17,14 @@ describe('parseModelId', () => {
     });
   });
 
-  it('parses claude opus with variant', () => {
-    const p = parseModelId('claude-opus-4.6-1m');
+  it('parses model with variant suffix', () => {
+    const p = parseModelId('gpt-5.1-codex-max');
     expect(p).toEqual({
-      provider: 'claude',
-      family: 'opus',
-      version: '4.6',
-      variant: '1m',
-      raw: 'claude-opus-4.6-1m',
+      provider: 'gpt',
+      family: 'codex',
+      version: '5.1',
+      variant: 'max',
+      raw: 'gpt-5.1-codex-max',
     });
   });
 
@@ -106,13 +106,13 @@ describe('parseModelId', () => {
   });
 
   it('parses gemini model', () => {
-    const p = parseModelId('gemini-3-pro-preview');
+    const p = parseModelId('gemini-2.5-pro');
     expect(p).toEqual({
       provider: 'gemini',
       family: 'pro',
-      version: '3',
-      variant: 'preview',
-      raw: 'gemini-3-pro-preview',
+      version: '2.5',
+      variant: undefined,
+      raw: 'gemini-2.5-pro',
     });
   });
 
@@ -151,13 +151,12 @@ describe('parseModelId', () => {
 
 describe('getFallbackChain', () => {
   const ALL_MODELS = [
-    'claude-opus-4.6', 'claude-opus-4.6-1m', 'claude-opus-4.5',
+    'claude-opus-4.6', 'claude-opus-4.5',
     'claude-sonnet-4.6', 'claude-sonnet-4.5',
     'claude-haiku-4.5',
     'gpt-5.4', 'gpt-5.2', 'gpt-5.1',
-    'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini',
+    'gpt-5.3-codex', 'gpt-5.2-codex', 'gpt-5.1-codex-max',
     'gpt-5-mini', 'gpt-4.1',
-    'gemini-3-pro-preview',
     'o3', 'o4-mini',
   ];
 
@@ -237,6 +236,14 @@ describe('getFallbackChain', () => {
     expect(chain[1]).toBe('gpt-5.2');
     expect(chain[2]).toBe('gpt-5.1');
   });
+
+  it('correctly orders multi-segment versions (4.10 > 4.9)', () => {
+    const available = ['claude-sonnet-4.9', 'claude-sonnet-4.10', 'claude-sonnet-4.1'];
+    const chain = getFallbackChain('claude-sonnet-5.0', available);
+    expect(chain[0]).toBe('claude-sonnet-4.10');
+    expect(chain[1]).toBe('claude-sonnet-4.9');
+    expect(chain[2]).toBe('claude-sonnet-4.1');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -246,6 +253,12 @@ describe('getFallbackChain', () => {
 describe('isModelError', () => {
   it('detects capacity errors in message', () => {
     expect(isModelError(new Error('Model is at capacity, please try again later'))).toBe(true);
+    expect(isModelError(new Error('model capacity exceeded'))).toBe(true);
+  });
+
+  it('does not flag generic capacity errors', () => {
+    expect(isModelError(new Error('disk capacity exceeded'))).toBe(false);
+    expect(isModelError(new Error('request payload exceeds capacity'))).toBe(false);
   });
 
   it('detects overloaded errors', () => {
@@ -269,6 +282,10 @@ describe('isModelError', () => {
 
   it('detects HTTP 503 status', () => {
     expect(isModelError({ statusCode: 503, message: 'Service Unavailable' })).toBe(true);
+  });
+
+  it('does not flag generic service unavailable by message alone', () => {
+    expect(isModelError(new Error('Service unavailable'))).toBe(false);
   });
 
   it('detects resource exhausted errors', () => {
@@ -400,7 +417,7 @@ describe('tryWithFallback', () => {
       async (model) => {
         tried.push(model);
         if (model === 'claude-sonnet-4.6') {
-          throw new Error('capacity exceeded');
+          throw new Error('model is overloaded');
         }
         return `ok-${model}`;
       },
@@ -408,6 +425,25 @@ describe('tryWithFallback', () => {
     expect(result.usedModel).toBe('claude-haiku-4.5');
     // Config fallback (haiku) should be tried before auto-detected (sonnet-4.5)
     expect(tried[1]).toBe('claude-haiku-4.5');
+  });
+
+  it('filters config fallbacks against available models', async () => {
+    const tried: string[] = [];
+    await tryWithFallback(
+      'claude-sonnet-4.6',
+      available, // only sonnet-4.6, sonnet-4.5, haiku-4.5
+      ['claude-opus-4.6', 'claude-haiku-4.5'], // opus not available
+      async (model) => {
+        tried.push(model);
+        if (model === 'claude-sonnet-4.6') {
+          throw new Error('model is overloaded');
+        }
+        return `ok-${model}`;
+      },
+    );
+    // opus-4.6 should be skipped (not available), haiku tried directly
+    expect(tried).not.toContain('claude-opus-4.6');
+    expect(tried).toContain('claude-haiku-4.5');
   });
 
   it('throws when no fallbacks exist', async () => {

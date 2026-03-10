@@ -26,7 +26,6 @@ export interface ParsedModel {
 const STATIC_FALLBACK_MAP: Record<string, string[]> = {
   // Claude Opus family
   'claude-opus-4.6':       ['claude-opus-4.5', 'claude-sonnet-4.6', 'claude-sonnet-4.5'],
-  'claude-opus-4.6-1m':    ['claude-opus-4.6', 'claude-opus-4.5', 'claude-sonnet-4.6'],
   'claude-opus-4.5':       ['claude-opus-4.6', 'claude-sonnet-4.6', 'claude-sonnet-4.5'],
 
   // Claude Sonnet family
@@ -43,16 +42,12 @@ const STATIC_FALLBACK_MAP: Record<string, string[]> = {
   'gpt-5-mini':            ['gpt-5.1', 'gpt-5.2'],
 
   // GPT Codex family
-  'gpt-5.3-codex':         ['gpt-5.2-codex', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini'],
-  'gpt-5.2-codex':         ['gpt-5.1-codex-max', 'gpt-5.3-codex', 'gpt-5.1-codex-mini'],
-  'gpt-5.1-codex-max':     ['gpt-5.2-codex', 'gpt-5.3-codex', 'gpt-5.1-codex-mini'],
-  'gpt-5.1-codex-mini':    ['gpt-5.1-codex-max', 'gpt-5.2-codex'],
+  'gpt-5.3-codex':         ['gpt-5.2-codex', 'gpt-5.1-codex-max'],
+  'gpt-5.2-codex':         ['gpt-5.1-codex-max', 'gpt-5.3-codex'],
+  'gpt-5.1-codex-max':     ['gpt-5.2-codex', 'gpt-5.3-codex'],
 
   // GPT-4.1 (older)
   'gpt-4.1':               ['gpt-5-mini', 'gpt-5.1'],
-
-  // Gemini
-  'gemini-3-pro-preview':  [],
 
   // o-series (reasoning models)
   'o3':                     ['o4-mini', 'gpt-5.4'],
@@ -69,7 +64,7 @@ const STATIC_FALLBACK_MAP: Record<string, string[]> = {
  * Known patterns:
  * - `claude-{family}-{version}[-{variant}]`   e.g. claude-opus-4.6, claude-sonnet-4.5
  * - `gpt-{version}[-{family}][-{variant}]`    e.g. gpt-5.4, gpt-5.3-codex, gpt-5.1-codex-max
- * - `gemini-{version}-{family}[-{variant}]`   e.g. gemini-3-pro-preview
+ * - `gemini-{version}-{family}[-{variant}]`   e.g. gemini-2.5-pro
  * - `o{version}[-{variant}]`                  e.g. o3, o4-mini
  */
 export function parseModelId(id: string): ParsedModel {
@@ -142,6 +137,19 @@ export function parseModelId(id: string): ParsedModel {
 // Generic fallback strategy
 // ---------------------------------------------------------------------------
 
+/** Compare two version strings segment by segment (e.g. "4.10" > "4.9"). */
+function compareVersions(a: string, b: string): number {
+  const partsA = a.split('.').map(Number);
+  const partsB = b.split('.').map(Number);
+  const len = Math.max(partsA.length, partsB.length);
+  for (let i = 0; i < len; i++) {
+    const va = partsA[i] ?? 0;
+    const vb = partsB[i] ?? 0;
+    if (va !== vb) return va - vb;
+  }
+  return 0;
+}
+
 /**
  * Build a generic fallback chain for a model based on parsed fields.
  * Finds models from the same provider+family, sorted by descending version,
@@ -161,9 +169,8 @@ function buildGenericFallback(parsed: ParsedModel, availableModels: string[]): s
 
   // Sort by version descending (prefer higher versions as they're more capable)
   candidates.sort((a, b) => {
-    const va = parseFloat(a.parsed.version) || 0;
-    const vb = parseFloat(b.parsed.version) || 0;
-    if (vb !== va) return vb - va;
+    const cmp = compareVersions(b.parsed.version, a.parsed.version);
+    if (cmp !== 0) return cmp;
     // Prefer no-variant over variant (base model over specialized)
     if (!a.parsed.variant && b.parsed.variant) return -1;
     if (a.parsed.variant && !b.parsed.variant) return 1;
@@ -183,7 +190,7 @@ function buildGenericFallback(parsed: ParsedModel, availableModels: string[]): s
  * Strategy:
  * 1. Check static fallback map for explicit chain
  * 2. Filter to models that are actually available
- * 3. If no static fallbacks remain, use generic same-provider+family strategy
+ * 3. Append generic same-provider+family fallbacks not already in the static chain
  * 4. Deduplicate while preserving order
  */
 export function getFallbackChain(modelId: string, availableModels: string[]): string[] {
@@ -218,14 +225,13 @@ export function getFallbackChain(modelId: string, availableModels: string[]): st
 
 /** Patterns in error messages that indicate a model-specific (capacity/availability) issue. */
 const MODEL_ERROR_PATTERNS = [
-  /capacity/i,
+  /model.*capacity/i,
   /overloaded/i,
   /model.*(not\s+found|not\s+available|unavailable|does\s+not\s+exist)/i,
   /rate\s*limit/i,
   /too\s+many\s+requests/i,
   /resource\s+exhausted/i,
   /temporarily\s+unavailable/i,
-  /service\s+unavailable/i,
   /quota\s+exceeded/i,
   /model\s+is\s+(currently\s+)?(unavailable|overloaded|at\s+capacity)/i,
 ];
@@ -280,13 +286,14 @@ export async function tryWithFallback<T>(
     log.warn(`Model "${primaryModel}" failed: ${err.message ?? err}. Trying fallbacks...`);
 
     // Build fallback chain: config overrides take priority, then auto-detected
+    const availableSet = new Set(availableModels);
     const autoChain = getFallbackChain(primaryModel, availableModels);
     let chain: string[];
     if (configFallbacks && configFallbacks.length > 0) {
-      // Config fallbacks first, then auto-detected ones not already in config
+      // Config fallbacks first (filtered to available), then auto-detected ones not already in config
       const configSet = new Set(configFallbacks);
       chain = [
-        ...configFallbacks.filter(m => m !== primaryModel),
+        ...configFallbacks.filter(m => m !== primaryModel && availableSet.has(m)),
         ...autoChain.filter(m => !configSet.has(m)),
       ];
     } else {
