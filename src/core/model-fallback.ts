@@ -226,12 +226,12 @@ export function getFallbackChain(modelId: string, availableModels: string[]): st
 /** Patterns in error messages that indicate a model-specific (capacity/availability) issue. */
 const MODEL_ERROR_PATTERNS = [
   /model.*capacity/i,
-  /overloaded/i,
+  /model.*(overloaded|over\s*loaded)/i,
   /model.*(not\s+found|not\s+available|unavailable|does\s+not\s+exist)/i,
   /rate\s*limit/i,
   /too\s+many\s+requests/i,
   /resource\s+exhausted/i,
-  /temporarily\s+unavailable/i,
+  /model.*temporarily\s+unavailable/i,
   /quota\s+exceeded/i,
   /model\s+is\s+(currently\s+)?(unavailable|overloaded|at\s+capacity)/i,
 ];
@@ -247,14 +247,47 @@ export function isModelError(error: any): boolean {
   if (!error) return false;
 
   // Check HTTP status codes
-  const status = error.status ?? error.statusCode ?? error.code;
+  const status = error.status ?? error.statusCode;
   if (typeof status === 'number' && MODEL_ERROR_CODES.has(status)) {
+    return true;
+  }
+  // Some HTTP libraries store status as a string code — try parsing
+  const code = error.code;
+  if (typeof code === 'number' && MODEL_ERROR_CODES.has(code)) {
     return true;
   }
 
   // Check error message patterns
   const message = String(error.message ?? error.reason ?? error ?? '');
   return MODEL_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
+/**
+ * Build a merged fallback chain from config overrides and auto-detected fallbacks.
+ * Config fallbacks take priority; auto-detected ones fill in any gaps.
+ * When availableModels is empty (e.g., listModels() failed), config fallbacks
+ * are included unfiltered so they still get attempted.
+ */
+export function buildFallbackChain(
+  primaryModel: string,
+  availableModels: string[],
+  configFallbacks?: string[],
+): string[] {
+  const hasAvailability = availableModels.length > 0;
+  const availableSet = new Set(availableModels);
+  const autoChain = hasAvailability ? getFallbackChain(primaryModel, availableModels) : [];
+
+  if (configFallbacks && configFallbacks.length > 0) {
+    const configSet = new Set(configFallbacks);
+    const filtered = hasAvailability
+      ? configFallbacks.filter(m => m !== primaryModel && availableSet.has(m))
+      : configFallbacks.filter(m => m !== primaryModel);
+    return [
+      ...filtered,
+      ...autoChain.filter(m => !configSet.has(m)),
+    ];
+  }
+  return autoChain;
 }
 
 /**
@@ -285,20 +318,7 @@ export async function tryWithFallback<T>(
     }
     log.warn(`Model "${primaryModel}" failed: ${err.message ?? err}. Trying fallbacks...`);
 
-    // Build fallback chain: config overrides take priority, then auto-detected
-    const availableSet = new Set(availableModels);
-    const autoChain = getFallbackChain(primaryModel, availableModels);
-    let chain: string[];
-    if (configFallbacks && configFallbacks.length > 0) {
-      // Config fallbacks first (filtered to available), then auto-detected ones not already in config
-      const configSet = new Set(configFallbacks);
-      chain = [
-        ...configFallbacks.filter(m => m !== primaryModel && availableSet.has(m)),
-        ...autoChain.filter(m => !configSet.has(m)),
-      ];
-    } else {
-      chain = autoChain;
-    }
+    const chain = buildFallbackChain(primaryModel, availableModels, configFallbacks);
 
     if (chain.length === 0) {
       log.error(`No fallback models available for "${primaryModel}"`);

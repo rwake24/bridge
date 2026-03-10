@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseModelId, getFallbackChain, isModelError, tryWithFallback } from './model-fallback.js';
+import { parseModelId, getFallbackChain, isModelError, tryWithFallback, buildFallbackChain } from './model-fallback.js';
 
 // ---------------------------------------------------------------------------
 // parseModelId
@@ -247,6 +247,48 @@ describe('getFallbackChain', () => {
 });
 
 // ---------------------------------------------------------------------------
+// buildFallbackChain
+// ---------------------------------------------------------------------------
+
+describe('buildFallbackChain', () => {
+  const ALL_MODELS = [
+    'claude-opus-4.6', 'claude-opus-4.5',
+    'claude-sonnet-4.6', 'claude-sonnet-4.5',
+    'claude-haiku-4.5',
+    'gpt-5.4', 'gpt-5.2', 'gpt-5.1',
+  ];
+
+  it('uses auto chain when no config fallbacks', () => {
+    const chain = buildFallbackChain('claude-opus-4.6', ALL_MODELS);
+    expect(chain.length).toBeGreaterThan(0);
+    expect(chain).not.toContain('claude-opus-4.6');
+  });
+
+  it('prioritizes config fallbacks over auto chain', () => {
+    const chain = buildFallbackChain('claude-opus-4.6', ALL_MODELS, ['gpt-5.4', 'claude-sonnet-4.5']);
+    expect(chain[0]).toBe('gpt-5.4');
+    expect(chain[1]).toBe('claude-sonnet-4.5');
+  });
+
+  it('includes config fallbacks unfiltered when availableModels is empty', () => {
+    const chain = buildFallbackChain('claude-opus-4.6', [], ['claude-sonnet-4.6', 'claude-sonnet-4.5']);
+    expect(chain).toContain('claude-sonnet-4.6');
+    expect(chain).toContain('claude-sonnet-4.5');
+  });
+
+  it('excludes the primary model from config fallbacks', () => {
+    const chain = buildFallbackChain('claude-opus-4.6', ALL_MODELS, ['claude-opus-4.6', 'claude-sonnet-4.6']);
+    expect(chain).not.toContain('claude-opus-4.6');
+    expect(chain).toContain('claude-sonnet-4.6');
+  });
+
+  it('returns empty when no available models and no config fallbacks', () => {
+    const chain = buildFallbackChain('claude-opus-4.6', []);
+    expect(chain).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // isModelError
 // ---------------------------------------------------------------------------
 
@@ -263,6 +305,11 @@ describe('isModelError', () => {
 
   it('detects overloaded errors', () => {
     expect(isModelError(new Error('The model is currently overloaded'))).toBe(true);
+  });
+
+  it('does not flag generic overloaded errors', () => {
+    expect(isModelError(new Error('Gateway overloaded'))).toBe(false);
+    expect(isModelError(new Error('Connection pool overloaded'))).toBe(false);
   });
 
   it('detects model not found errors', () => {

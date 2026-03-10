@@ -93,6 +93,7 @@ Channel entries map a specific Mattermost channel to a bot, working directory, a
 | `name` | No | Human-readable label (for logs) |
 | `workingDirectory` | Yes | Local path for the Copilot session |
 | `model` | No | AI model override |
+| `fallbackModels` | No | Ordered list of fallback models if the primary is unavailable |
 | `agent` | No | Custom agent name |
 | `triggerMode` | No | `"mention"` (default) or `"all"` |
 | `threadedReplies` | No | Use threaded replies (default: `true`) |
@@ -115,6 +116,7 @@ Fallback values for any setting not specified per-channel:
 {
   "defaults": {
     "model": "claude-sonnet-4.6",
+    "fallbackModels": ["claude-sonnet-4.5"],
     "agent": null,
     "triggerMode": "mention",
     "threadedReplies": true,

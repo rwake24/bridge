@@ -21,7 +21,7 @@ import {
   type InterAgentContext,
 } from './inter-agent.js';
 import { createLogger } from '../logger.js';
-import { tryWithFallback, isModelError, getFallbackChain } from './model-fallback.js';
+import { tryWithFallback, isModelError, buildFallbackChain } from './model-fallback.js';
 import type { McpServerInfo } from './command-handler.js';
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
@@ -564,18 +564,7 @@ export class SessionManager {
           availableModels = models.map(m => m.id);
         } catch { /* best-effort */ }
 
-        const availableSet = new Set(availableModels);
-        const autoChain = getFallbackChain(prefs.model, availableModels);
-        let chain: string[];
-        if (configFallbacks && configFallbacks.length > 0) {
-          const configSet = new Set(configFallbacks);
-          chain = [
-            ...configFallbacks.filter(m => m !== prefs.model && availableSet.has(m)),
-            ...autoChain.filter(m => !configSet.has(m)),
-          ];
-        } else {
-          chain = autoChain;
-        }
+        const chain = buildFallbackChain(prefs.model, availableModels, configFallbacks);
 
         // Try each fallback: create session + send
         let lastError: any = err;
