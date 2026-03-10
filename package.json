@@ -14,6 +14,8 @@
     "scripts/lib/*.ts",
     "!scripts/**/*.test.ts",
     "!scripts/test-admin-api.ts",
+    "scripts/com.copilot-bridge.plist",
+    "scripts/copilot-bridge.service",
     "templates/",
     "config.sample.json"
   ],

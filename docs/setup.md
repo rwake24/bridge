@@ -245,6 +245,9 @@ copilot-bridge uninstall-service
 
 ### Manual setup
 
+> [!NOTE]
+> The manual steps below reference template files in the `scripts/` directory. If you installed via npm, these are at `$(npm root -g)/@chrisromp/copilot-bridge/scripts/`. The automated `copilot-bridge install-service` command is recommended instead.
+
 <details>
 <summary>macOS (launchd) — manual steps</summary>
 
