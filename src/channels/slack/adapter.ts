@@ -133,15 +133,18 @@ export class SlackAdapter implements ChannelAdapter {
 
   async updateMessage(channelId: string, messageId: string, content: string): Promise<void> {
     const formatted = markdownToMrkdwn(content);
+    // Truncate to Slack's limit — streaming updates can't be chunked across messages
+    const truncated = formatted.length > SLACK_MAX_MESSAGE_LENGTH
+      ? formatted.slice(0, SLACK_MAX_MESSAGE_LENGTH - 20) + '\n\n_(truncated)_'
+      : formatted;
     try {
       await this.app.client.chat.update({
         token: this.botToken,
         channel: channelId,
         ts: messageId,
-        text: formatted,
+        text: truncated,
       });
     } catch (err: any) {
-      // msg_too_old or cant_update_message — degrade gracefully
       if (err?.data?.error === 'msg_too_old' || err?.data?.error === 'cant_update_message') {
         log.warn(`Cannot update message ${messageId} (too old or restricted)`);
       } else {
@@ -293,7 +296,7 @@ export class SlackAdapter implements ChannelAdapter {
         userId: message.user,
         username: message.user, // Slack events don't include username; resolved later if needed
         text,
-        postId: ts,
+        postId: `${channelId}:${ts}`,
         threadRootId: message.thread_ts !== ts ? message.thread_ts : undefined,
         mentionsBot,
         isDM,

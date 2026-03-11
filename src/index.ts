@@ -417,8 +417,6 @@ async function main(): Promise<void> {
 /** Strip the bot's own @mention from message text, keeping other mentions intact. */
 function stripBotMention(text: string, botName: string | undefined): string {
   if (!botName) return text;
-  // Handle Slack <@USERID> format (in case adapter didn't pre-strip)
-  text = text.replace(/<@[A-Z0-9]+>/g, '');
   return text.replace(new RegExp(`@\\S+`, 'g'), (match) => {
     if (match === `@${botName}`) return '';
     return match;
