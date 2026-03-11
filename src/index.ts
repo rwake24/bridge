@@ -137,7 +137,7 @@ const SLACK_UID_PATTERN = /^U[A-Z0-9]{6,}$/;
 
 /**
  * Resolve non-UID entries in Slack bot access configs.
- * Handles added manually as usernames are looked up via Slack API and replaced with UIDs.
+ * Handles added manually as usernames are looked up via Slack API (with pagination) and replaced with UIDs.
  */
 async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
   const slackPlatform = config.platforms.slack;
@@ -150,36 +150,42 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
     if (unresolved.length === 0) continue;
 
     log.info(`Resolving ${unresolved.length} Slack handle(s) for bot "${botName}" access list...`);
-    const resolved: string[] = [];
-    for (const handle of unresolved) {
-      try {
-        const resp = await fetch(`https://slack.com/api/users.list?limit=200`, {
+
+    // Fetch all workspace members (paginated) once per bot
+    const allMembers: any[] = [];
+    try {
+      let cursor: string | undefined;
+      do {
+        const params = new URLSearchParams({ limit: '200' });
+        if (cursor) params.set('cursor', cursor);
+        const resp = await fetch(`https://slack.com/api/users.list?${params}`, {
           headers: { 'Authorization': `Bearer ${bot.token}` },
         });
-        if (!resp.ok) { resolved.push(handle); continue; }
+        if (!resp.ok) { log.warn(`  Slack users.list failed: HTTP ${resp.status}`); break; }
         const data = await resp.json() as any;
-        if (!data.ok) { resolved.push(handle); continue; }
+        if (!data.ok) { log.warn(`  Slack users.list failed: ${data.error}`); break; }
+        for (const m of data.members ?? []) allMembers.push(m);
+        cursor = data.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+    } catch (err: any) {
+      log.warn(`  Failed to fetch Slack users: ${err.message}`);
+    }
 
-        const normalized = handle.replace(/^@/, '').toLowerCase();
-        let found = false;
-        for (const member of data.members ?? []) {
-          if (member.deleted || member.is_bot) continue;
-          const name = (member.name ?? '').toLowerCase();
-          const displayName = member.profile?.display_name_normalized?.toLowerCase() ?? '';
-          const realName = member.profile?.real_name_normalized?.toLowerCase() ?? '';
-          if (name === normalized || displayName === normalized || realName === normalized) {
-            log.info(`  Resolved "${handle}" → ${member.id}`);
-            resolved.push(member.id);
-            found = true;
-            break;
-          }
-        }
-        if (!found) {
-          log.warn(`  Could not resolve Slack handle "${handle}" — keeping as-is`);
-          resolved.push(handle);
-        }
-      } catch {
-        log.warn(`  Failed to resolve Slack handle "${handle}" — keeping as-is`);
+    const resolved: string[] = [];
+    for (const handle of unresolved) {
+      const normalized = handle.replace(/^@/, '').toLowerCase();
+      const member = allMembers.find(m => {
+        if (m.deleted || m.is_bot) return false;
+        const name = (m.name ?? '').toLowerCase();
+        const displayName = m.profile?.display_name_normalized?.toLowerCase() ?? '';
+        const realName = m.profile?.real_name_normalized?.toLowerCase() ?? '';
+        return name === normalized || displayName === normalized || realName === normalized;
+      });
+      if (member) {
+        log.info(`  Resolved "${handle}" → ${member.id}`);
+        resolved.push(member.id);
+      } else {
+        log.warn(`  Could not resolve Slack handle "${handle}" — keeping as-is`);
         resolved.push(handle);
       }
     }
@@ -201,6 +207,8 @@ async function main(): Promise<void> {
   const configWatcher = new ConfigWatcher();
   configWatcher.onReload((result) => {
     if (!result.success) return;
+    // Re-resolve Slack access handles after reload (config was re-read from disk)
+    resolveSlackAccessUsers(getConfig()).catch(err => log.warn(`Slack access resolution after reload failed: ${err.message}`));
     if (result.restartNeeded.length > 0) {
       // Notify admin channels about restart-needed changes
       for (const [key, adapter] of botAdapters) {
@@ -356,7 +364,7 @@ async function main(): Promise<void> {
       );
       channelLocks.set(msg.channelId, next);
     });
-    adapter.onReaction((reaction) => handleReaction(reaction, sessionManager));
+    adapter.onReaction((reaction) => handleReaction(reaction, sessionManager, platformName, botName));
 
     await adapter.connect();
     log.info(`${key} connected`);
@@ -1198,9 +1206,18 @@ async function handleInboundMessage(
 async function handleReaction(
   reaction: InboundReaction,
   sessionManager: SessionManager,
+  platformName: string,
+  botName: string,
 ): Promise<void> {
   if (!isConfiguredChannel(reaction.channelId)) return;
   if (reaction.action !== 'added') return;
+
+  // Check user-level access control (reactions carry userId but not username — match on userId only)
+  const botInfo = getPlatformBots(platformName).get(botName);
+  if (botInfo?.access && !checkUserAccess(reaction.userId, reaction.userId, botInfo.access)) {
+    log.debug(`User ${reaction.userId} denied reaction access to bot "${botName}"`);
+    return;
+  }
 
   const resolved = getAdapterForChannel(reaction.channelId);
   if (!resolved) return;
