@@ -106,13 +106,22 @@ In this example:
 
 | Mode | Behavior | Default? |
 |------|----------|----------|
-| `"allowlist"` | Only listed users can use the bot | **Yes** — when `access` is omitted |
+| `"allowlist"` | Only listed users can use the bot | — |
 | `"blocklist"` | Everyone **except** listed users | — |
-| `"open"` | All users can use the bot | Must be set explicitly |
+| `"open"` | All users can use the bot | — |
 
-**Secure by default:** When no `access` block is present, access defaults to an empty allowlist (deny all). You must either add users to an allowlist, set mode to `"open"`, or run `copilot-bridge init` (which configures the setup user automatically).
+### Resolution logic
 
-> ⚠️ **Breaking change (v0.8.0):** Previously, missing `access` defaulted to open. Existing configs without an `access` block will now deny all users. Add `"access": { "mode": "open" }` at the platform or bot level to restore the previous behavior.
+Access is evaluated at each configured level independently:
+
+- **Neither level configured** → deny all (secure by default)
+- **Only platform configured** → platform decides alone
+- **Only bot configured** → bot decides alone
+- **Both configured** → both must allow (platform checked first)
+
+An unconfigured level (no `access` block) is **skipped**, not treated as deny. This lets you set a platform-wide allowlist without needing to repeat it on every bot.
+
+> ⚠️ **Breaking change (v0.8.0):** Previously, missing `access` defaulted to open. Now, if no `access` block exists at either level, all users are denied. Add `"access": { "mode": "open" }` at the platform or bot level to restore the previous behavior, or run `copilot-bridge init` to configure access during setup.
 
 ### User identification
 

@@ -8,14 +8,12 @@
  *
  * If the platform denies a user, the bot-level config cannot override that.
  *
- * SECURITY: Missing access config defaults to DENY (allowlist with no users).
- * Use mode: "open" to explicitly allow all users.
+ * SECURITY: When neither level is configured, access defaults to DENY.
+ * If only one level is configured, that level decides alone.
+ * Use mode: "open" to explicitly allow all users at a given level.
  */
 
 import type { AccessConfig } from '../types.js';
-
-/** Default access config when none is specified: deny all (secure by default). */
-const DEFAULT_ACCESS: AccessConfig = { mode: 'allowlist', users: [] };
 
 /** Evaluate a single AccessConfig against a userId/username pair. */
 function evaluateAccess(userId: string, username: string, access: AccessConfig): boolean {
@@ -33,11 +31,15 @@ function evaluateAccess(userId: string, username: string, access: AccessConfig):
  * Returns true if the user is permitted, false if denied.
  *
  * Matching is case-insensitive and checks both userId and username against the config entries.
- * Missing access config defaults to deny-all (secure by default).
- * Use mode: "open" to explicitly allow all users.
  *
+ * Resolution logic:
+ *   - Neither configured → deny (secure by default)
+ *   - Only platform configured → platform decides
+ *   - Only bot configured → bot decides
+ *   - Both configured → both must allow (platform checked first)
+ *
+ * @param botAccess - Bot-level access config
  * @param platformAccess - Platform-level access config (checked first, takes precedence)
- * @param botAccess - Bot-level access config (checked second)
  */
 export function checkUserAccess(
   userId: string,
@@ -45,7 +47,17 @@ export function checkUserAccess(
   botAccess: AccessConfig | undefined,
   platformAccess?: AccessConfig,
 ): boolean {
-  // Platform takes precedence — if it denies, stop.
-  if (!evaluateAccess(userId, username, platformAccess ?? DEFAULT_ACCESS)) return false;
-  return evaluateAccess(userId, username, botAccess ?? DEFAULT_ACCESS);
+  const hasPlatform = !!platformAccess;
+  const hasBot = !!botAccess;
+
+  // Neither configured → deny (secure by default)
+  if (!hasPlatform && !hasBot) return false;
+
+  // Platform configured → must pass platform gate
+  if (hasPlatform && !evaluateAccess(userId, username, platformAccess)) return false;
+
+  // Bot configured → must pass bot gate
+  if (hasBot && !evaluateAccess(userId, username, botAccess)) return false;
+
+  return true;
 }

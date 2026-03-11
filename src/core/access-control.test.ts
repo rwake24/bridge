@@ -127,8 +127,8 @@ describe('checkUserAccess', () => {
 
   it('undefined platform + bot allowlist = bot decides', () => {
     const botAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
-    // undefined platform = deny (secure default), so even bot allow won't help
-    expect(checkUserAccess('U123', 'alice', botAccess, undefined)).toBe(false);
+    expect(checkUserAccess('U123', 'alice', botAccess, undefined)).toBe(true);
+    expect(checkUserAccess('U999', 'eve', botAccess, undefined)).toBe(false);
   });
 
   it('open platform + bot allowlist = bot decides', () => {
@@ -138,10 +138,10 @@ describe('checkUserAccess', () => {
     expect(checkUserAccess('U999', 'eve', botAccess, platformAccess)).toBe(false);
   });
 
-  it('platform allowlist + undefined bot = denies (both must allow)', () => {
+  it('platform allowlist + undefined bot = platform decides', () => {
     const platformAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
-    // undefined bot = deny (secure default)
-    expect(checkUserAccess('U123', 'alice', undefined, platformAccess)).toBe(false);
+    expect(checkUserAccess('U123', 'alice', undefined, platformAccess)).toBe(true);
+    expect(checkUserAccess('U999', 'eve', undefined, platformAccess)).toBe(false);
   });
 
   it('platform allowlist + open bot = platform decides', () => {
