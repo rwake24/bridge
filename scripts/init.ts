@@ -9,7 +9,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
-import { askRequired, askSecret, confirm, choose, closePrompts } from './lib/prompts.js';
+import { askRequired, askSecret, confirm, choose, pressEnter, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, readExistingConfig, mergeConfig, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
@@ -258,7 +258,7 @@ async function main() {
     dim('  5. Copy the app-level token (starts with xapp-)');
     blank();
 
-    await confirm('Press Enter when you\'re ready to paste the tokens...');
+    await pressEnter('Press Enter when you\'re ready to paste the tokens...');
 
     // Bot token
     const botToken = await askSecret('Bot User OAuth Token (xoxb-...)');

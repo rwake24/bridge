@@ -44,11 +44,9 @@ export class SlackAdapter implements ChannelAdapter {
   private messageHandlers: Array<(msg: InboundMessage) => void> = [];
   private reactionHandlers: Array<(reaction: InboundReaction) => void> = [];
 
-  // Reconnect replay state (mirrors Mattermost pattern)
-  private activeChannels = new Map<string, number>(); // channelId → last activity timestamp
-  private recentMessageTs = new Set<string>();         // ts values for dedup
+  // Reconnect dedup state
+  private recentMessageTs = new Set<string>();
   private static readonly MAX_RECENT_MESSAGES = 500;
-  private static readonly CHANNEL_STALENESS_MS = 3_600_000; // 1 hour
 
   constructor(opts: SlackAdapterOptions) {
     this.platform = opts.platformName;
@@ -246,16 +244,25 @@ export class SlackAdapter implements ChannelAdapter {
 
   async discoverDMChannels(): Promise<{ channelId: string; otherUserId: string }[]> {
     try {
-      const result = await this.app.client.conversations.list({
-        token: this.botToken,
-        types: 'im',
-        limit: 200,
-      });
+      const dms: { channelId: string; otherUserId: string }[] = [];
+      let cursor: string | undefined;
 
-      return (result.channels ?? []).map((ch: any) => ({
-        channelId: ch.id,
-        otherUserId: ch.user,
-      }));
+      do {
+        const result = await this.app.client.conversations.list({
+          token: this.botToken,
+          types: 'im',
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
+
+        for (const ch of result.channels ?? []) {
+          dms.push({ channelId: ch.id, otherUserId: ch.user });
+        }
+
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+
+      return dms;
     } catch (err) {
       log.warn('Failed to discover DM channels:', err);
       return [];
@@ -367,8 +374,7 @@ export class SlackAdapter implements ChannelAdapter {
     });
   }
 
-  private trackMessage(ts: string, channelId: string): void {
-    this.activeChannels.set(channelId, Date.now());
+  private trackMessage(ts: string, _channelId: string): void {
     this.recentMessageTs.add(ts);
 
     if (this.recentMessageTs.size > SlackAdapter.MAX_RECENT_MESSAGES) {
@@ -381,16 +387,12 @@ export class SlackAdapter implements ChannelAdapter {
   }
 
   /**
-   * Parse a message reference. For reactions, Slack needs channel + ts.
-   * We store postId as the ts, but reactions.add also needs the channel.
-   * Convention: postId may be "channelId:ts" for reactions, or just ts.
+   * Parse a message reference into [channelId, ts].
+   * Inbound messages store postId as "channelId:ts".
    */
   private parseMessageRef(ref: string): [string, string] {
-    if (ref.includes(':')) {
-      const idx = ref.indexOf(':');
-      return [ref.slice(0, idx), ref.slice(idx + 1)];
-    }
-    // If no channel prefix, return empty channel (caller must handle)
+    const idx = ref.indexOf(':');
+    if (idx > 0) return [ref.slice(0, idx), ref.slice(idx + 1)];
     return ['', ref];
   }
 }
