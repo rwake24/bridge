@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules, reloadConfig, ConfigWatcher } from './config.js';
+import { loadConfig, getConfig, isConfiguredChannel, registerDynamicChannel, markChannelAsDM, getChannelConfig, getPlatformBots, getPlatformAccess, getChannelBotName, isBotAdmin, getHardcodedRules, getConfigRules, reloadConfig, ConfigWatcher } from './config.js';
 import { CopilotBridge } from './core/bridge.js';
 import { SessionManager, BRIDGE_CUSTOM_TOOLS } from './core/session-manager.js';
 import { handleCommand, parseCommand } from './core/command-handler.js';
@@ -143,15 +143,28 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
   const slackPlatform = config.platforms.slack;
   if (!slackPlatform?.bots) return;
 
-  for (const [botName, bot] of Object.entries(slackPlatform.bots)) {
-    if (!bot.access?.users?.length) continue;
+  // Collect all access configs that need resolution: platform-level + per-bot
+  const accessTargets: { label: string; access: NonNullable<typeof slackPlatform.access>; tokenSource: string }[] = [];
+  const firstBotToken = Object.values(slackPlatform.bots)[0]?.token;
 
-    const unresolved = bot.access.users.filter(u => !SLACK_UID_PATTERN.test(u));
+  if (slackPlatform.access?.users?.length && firstBotToken) {
+    accessTargets.push({ label: 'platform "slack"', access: slackPlatform.access, tokenSource: firstBotToken });
+  }
+  for (const [botName, bot] of Object.entries(slackPlatform.bots)) {
+    if (bot.access?.users?.length) {
+      accessTargets.push({ label: `bot "${botName}"`, access: bot.access, tokenSource: bot.token });
+    }
+  }
+  if (accessTargets.length === 0) return;
+
+  // Deduplicate API calls — group by token
+  const membersByToken = new Map<string, any[]>();
+  for (const target of accessTargets) {
+    if (membersByToken.has(target.tokenSource)) continue;
+
+    const unresolved = target.access.users!.filter(u => !SLACK_UID_PATTERN.test(u));
     if (unresolved.length === 0) continue;
 
-    log.info(`Resolving ${unresolved.length} Slack handle(s) for bot "${botName}" access list...`);
-
-    // Fetch all workspace members (paginated) once per bot
     const allMembers: any[] = [];
     try {
       let cursor: string | undefined;
@@ -159,7 +172,7 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
         const params = new URLSearchParams({ limit: '200' });
         if (cursor) params.set('cursor', cursor);
         const resp = await fetch(`https://slack.com/api/users.list?${params}`, {
-          headers: { 'Authorization': `Bearer ${bot.token}` },
+          headers: { 'Authorization': `Bearer ${target.tokenSource}` },
         });
         if (!resp.ok) { log.warn(`  Slack users.list failed: HTTP ${resp.status}`); break; }
         const data = await resp.json() as any;
@@ -170,10 +183,20 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
     } catch (err: any) {
       log.warn(`  Failed to fetch Slack users: ${err.message}`);
     }
+    membersByToken.set(target.tokenSource, allMembers);
+  }
 
-    // Build lookup map for O(1) resolution (#10)
-    const nameMap = new Map<string, string>(); // normalized name → userId
-    const displayMap = new Map<string, string>(); // normalized display/real name → userId (less reliable)
+  // Resolve each access config
+  for (const target of accessTargets) {
+    const unresolved = target.access.users!.filter(u => !SLACK_UID_PATTERN.test(u));
+    if (unresolved.length === 0) continue;
+
+    log.info(`Resolving ${unresolved.length} Slack handle(s) for ${target.label} access list...`);
+    const allMembers = membersByToken.get(target.tokenSource) ?? [];
+
+    // Build lookup map for O(1) resolution
+    const nameMap = new Map<string, string>();
+    const displayMap = new Map<string, string>();
     for (const m of allMembers) {
       if (m.deleted || m.is_bot) continue;
       const name = (m.name ?? '').toLowerCase();
@@ -187,7 +210,6 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
     const resolved: string[] = [];
     for (const handle of unresolved) {
       const normalized = handle.replace(/^@/, '').toLowerCase();
-      // Prefer unique handle (member.name) over display/real name
       const byName = nameMap.get(normalized);
       if (byName) {
         log.info(`  Resolved "${handle}" → ${byName} (by handle)`);
@@ -204,9 +226,8 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
       }
     }
 
-    // Replace handles with resolved UIDs in the live config
-    const uidEntries = bot.access.users.filter(u => SLACK_UID_PATTERN.test(u));
-    bot.access.users = [...uidEntries, ...resolved];
+    const uidEntries = target.access.users!.filter(u => SLACK_UID_PATTERN.test(u));
+    target.access.users = [...uidEntries, ...resolved];
   }
 }
 
@@ -524,7 +545,7 @@ async function handleMidTurnMessage(
 
   // Check user-level access control
   const botInfo = getPlatformBots(platformName).get(botName);
-  if (botInfo?.access && !checkUserAccess(msg.userId, msg.username, botInfo.access)) {
+  if (!checkUserAccess(msg.userId, msg.username, botInfo?.access, getPlatformAccess(platformName))) {
     log.debug(`User ${msg.username} (${msg.userId}) denied mid-turn access to bot "${botName}"`);
     return;
   }
@@ -706,8 +727,8 @@ async function handleInboundMessage(
 
   // Check user-level access control (reads live config — hot-reloadable)
   const botInfo = getPlatformBots(platformName).get(botName);
-  if (botInfo?.access && !checkUserAccess(msg.userId, msg.username, botInfo.access)) {
-    log.debug(`User ${msg.username} (${msg.userId}) denied access to bot "${botName}" (${botInfo.access.mode})`);
+  if (!checkUserAccess(msg.userId, msg.username, botInfo?.access, getPlatformAccess(platformName))) {
+    log.debug(`User ${msg.username} (${msg.userId}) denied access to bot "${botName}"`);
     return; // silent drop
   }
 
@@ -1238,7 +1259,7 @@ async function handleReaction(
   // For Slack (UIDs stored in config), this is exact. For Mattermost (usernames in config),
   // this is best-effort — admin bots should use both username and user ID in allowlists.
   const botInfo = getPlatformBots(platformName).get(botName);
-  if (botInfo?.access && !checkUserAccess(reaction.userId, reaction.userId, botInfo.access)) {
+  if (!checkUserAccess(reaction.userId, reaction.userId, botInfo?.access, getPlatformAccess(platformName))) {
     log.debug(`User ${reaction.userId} denied reaction access to bot "${botName}"`);
     return;
   }

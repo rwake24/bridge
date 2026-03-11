@@ -67,13 +67,19 @@ If you only need one bot, use `botToken` instead of `bots`:
 
 ## User Access Control
 
-Control which users can interact with each bot using the `access` block:
+Control which users can interact with bots using the `access` block. Access can be set at **platform level** (applies to all bots on that platform) and/or **bot level** (per-bot override).
+
+**Platform-level access takes precedence** — if the platform denies a user, the bot-level config cannot override that. Both layers must allow the user for access to be granted.
 
 ```json
 {
   "platforms": {
     "mattermost": {
       "url": "https://chat.example.com",
+      "access": {
+        "mode": "allowlist",
+        "users": ["chris"]
+      },
       "bots": {
         "copilot": {
           "token": "BOT_TOKEN",
@@ -81,12 +87,20 @@ Control which users can interact with each bot using the `access` block:
             "mode": "allowlist",
             "users": ["chris", "alice"]
           }
+        },
+        "bob": {
+          "token": "BOT_TOKEN_2"
         }
       }
     }
   }
 }
 ```
+
+In this example:
+- **Platform level**: only `chris` can use any bot on this Mattermost instance
+- **copilot bot**: additionally restricts to `chris` and `alice` — but since the platform only allows `chris`, effectively only `chris` can use copilot
+- **bob bot**: no bot-level access block, so it inherits the platform allowlist — only `chris`
 
 ### Access modes
 
@@ -96,7 +110,7 @@ Control which users can interact with each bot using the `access` block:
 | `"blocklist"` | Everyone **except** listed users | — |
 | `"open"` | All users can use the bot | When `access` is omitted |
 
-When no `access` block is present, the bot operates in **open** mode (backward compatible). New configs created by `copilot-bridge init` default to **allowlist** mode with the setup user pre-added.
+When no `access` block is present at either level, that level operates in **open** mode (backward compatible). New configs created by `copilot-bridge init` default to **allowlist** mode with the setup user pre-added.
 
 ### User identification
 
@@ -105,7 +119,7 @@ When no `access` block is present, the bot operates in **open** mode (backward c
 
 The access check matches each entry against both the user's platform ID and username, so either format works.
 
-> **Note:** Access control requires the `bots` config format (not the `botToken` shorthand). If you're using `botToken`, switch to the `bots` format to add access control.
+> **Note:** Bot-level access control requires the `bots` config format (not the `botToken` shorthand). Platform-level access works with both formats.
 
 ### Denied user behavior
 

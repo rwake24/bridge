@@ -721,4 +721,55 @@ describe('access config validation', () => {
     fs.writeFileSync(configFile, JSON.stringify(cfg));
     expect(() => loadConfig(configFile)).toThrow(/access must be an object/);
   });
+
+  // --- Platform-level access ---
+  it('accepts valid platform-level access config', () => {
+    const cfg = {
+      platforms: {
+        mattermost: {
+          url: 'http://localhost:8065',
+          access: { mode: 'allowlist', users: ['chris'] },
+          bots: { copilot: { token: 'test-token-123' } },
+        },
+      },
+      channels: [],
+      defaults: { model: 'test', agent: null, triggerMode: 'all', threadedReplies: false, verbose: false, permissionMode: 'interactive' },
+    };
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+    expect(getConfig().platforms.mattermost?.access?.mode).toBe('allowlist');
+    expect(getConfig().platforms.mattermost?.access?.users).toEqual(['chris']);
+  });
+
+  it('rejects invalid platform-level access mode', () => {
+    const cfg = {
+      platforms: {
+        mattermost: {
+          url: 'http://localhost:8065',
+          access: { mode: 'deny' },
+          bots: { copilot: { token: 'test-token-123' } },
+        },
+      },
+      channels: [],
+      defaults: { model: 'test', agent: null, triggerMode: 'all', threadedReplies: false, verbose: false, permissionMode: 'interactive' },
+    };
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow(/access\.mode/);
+  });
+
+  it('rejects null platform-level access', () => {
+    const cfg = {
+      platforms: {
+        mattermost: {
+          url: 'http://localhost:8065',
+          access: null,
+          bots: { copilot: { token: 'test-token-123' } },
+        },
+      },
+      channels: [],
+      defaults: { model: 'test', agent: null, triggerMode: 'all', threadedReplies: false, verbose: false, permissionMode: 'interactive' },
+    };
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow(/access must be an object/);
+  });
 });

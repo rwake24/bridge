@@ -44,6 +44,7 @@ function validateAndNormalize(raw: any): AppConfig {
     if (name === 'slack') {
       // Slack uses Socket Mode — no URL needed
       if (!p.bots) throw new Error('Platform "slack" requires "bots" with bot tokens');
+      validateAccessConfig(name, '(platform)', p.access);
       for (const [botName, bot] of Object.entries(p.bots)) {
         if (!(bot as any).token) throw new Error(`Platform "slack" bot "${botName}" missing "token"`);
         if (!(bot as any).appToken) throw new Error(`Platform "slack" bot "${botName}" missing "appToken" (required for Socket Mode)`);
@@ -52,6 +53,7 @@ function validateAndNormalize(raw: any): AppConfig {
     } else {
       if (!p.url) throw new Error(`Platform "${name}" missing "url"`);
       if (!p.botToken && !p.bots) throw new Error(`Platform "${name}" needs either "botToken" or "bots"`);
+      validateAccessConfig(name, '(platform)', p.access);
       if (p.bots) {
         for (const [botName, bot] of Object.entries(p.bots)) {
           if (!(bot as any).token) throw new Error(`Platform "${name}" bot "${botName}" missing "token"`);
@@ -462,6 +464,12 @@ export function getPlatformBots(platformName: string): Map<string, { token: stri
     bots.set('default', { token: platform.botToken });
   }
   return bots;
+}
+
+/** Get platform-level access config (if any). */
+export function getPlatformAccess(platformName: string): AccessConfig | undefined {
+  const config = getConfig();
+  return config.platforms[platformName]?.access;
 }
 
 /** Check if a bot is an admin. */

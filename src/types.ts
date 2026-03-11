@@ -18,6 +18,7 @@ export interface PlatformConfig {
   url?: string;                     // required for Mattermost; not needed for Slack (Socket Mode)
   botToken?: string;                // single-bot shorthand (backward compatible)
   bots?: Record<string, BotConfig>; // multi-bot: name → config
+  access?: AccessConfig;            // platform-level access control (takes precedence over bot-level)
 }
 
 // Channel configuration

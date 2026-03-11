@@ -79,18 +79,64 @@ describe('checkUserAccess', () => {
   // --- Edge cases ---
   it('matches Slack UID in allowlist', () => {
     const access: AccessConfig = { mode: 'allowlist', users: ['U12345ABC'] };
-    // Slack: userId=U12345ABC, username=U12345ABC (same)
     expect(checkUserAccess('U12345ABC', 'U12345ABC', access)).toBe(true);
   });
 
   it('matches Mattermost username in allowlist', () => {
     const access: AccessConfig = { mode: 'allowlist', users: ['chris'] };
-    // Mattermost: userId=abc123, username=chris
     expect(checkUserAccess('abc123', 'chris', access)).toBe(true);
   });
 
   it('does not match partial username', () => {
     const access: AccessConfig = { mode: 'allowlist', users: ['chris'] };
     expect(checkUserAccess('U123', 'christopher', access)).toBe(false);
+  });
+
+  // --- Platform-level access (takes precedence) ---
+  it('platform allowlist denies user even if bot allows', () => {
+    const platformAccess: AccessConfig = { mode: 'allowlist', users: ['admin'] };
+    const botAccess: AccessConfig = { mode: 'open' };
+    expect(checkUserAccess('U123', 'alice', botAccess, platformAccess)).toBe(false);
+  });
+
+  it('platform allowlist allows user, then bot allowlist is checked', () => {
+    const platformAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    const botAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    expect(checkUserAccess('U123', 'alice', botAccess, platformAccess)).toBe(true);
+  });
+
+  it('platform allows but bot denies', () => {
+    const platformAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    const botAccess: AccessConfig = { mode: 'allowlist', users: ['bob'] };
+    expect(checkUserAccess('U123', 'alice', botAccess, platformAccess)).toBe(false);
+  });
+
+  it('platform blocklist blocks user regardless of bot config', () => {
+    const platformAccess: AccessConfig = { mode: 'blocklist', users: ['spambot'] };
+    const botAccess: AccessConfig = { mode: 'open' };
+    expect(checkUserAccess('U999', 'spambot', botAccess, platformAccess)).toBe(false);
+  });
+
+  it('platform open + bot allowlist = bot decides', () => {
+    const platformAccess: AccessConfig = { mode: 'open' };
+    const botAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    expect(checkUserAccess('U123', 'alice', botAccess, platformAccess)).toBe(true);
+    expect(checkUserAccess('U999', 'eve', botAccess, platformAccess)).toBe(false);
+  });
+
+  it('undefined platform + bot allowlist = bot decides', () => {
+    const botAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    expect(checkUserAccess('U123', 'alice', botAccess, undefined)).toBe(true);
+    expect(checkUserAccess('U999', 'eve', botAccess, undefined)).toBe(false);
+  });
+
+  it('platform allowlist + undefined bot = platform decides', () => {
+    const platformAccess: AccessConfig = { mode: 'allowlist', users: ['alice'] };
+    expect(checkUserAccess('U123', 'alice', undefined, platformAccess)).toBe(true);
+    expect(checkUserAccess('U999', 'eve', undefined, platformAccess)).toBe(false);
+  });
+
+  it('both undefined = open (allow all)', () => {
+    expect(checkUserAccess('U123', 'anyone', undefined, undefined)).toBe(true);
   });
 });
