@@ -7,13 +7,19 @@
  *   2. Bot-level — per-bot override
  *
  * If the platform denies a user, the bot-level config cannot override that.
+ *
+ * SECURITY: Missing access config defaults to DENY (allowlist with no users).
+ * Use mode: "open" to explicitly allow all users.
  */
 
 import type { AccessConfig } from '../types.js';
 
+/** Default access config when none is specified: deny all (secure by default). */
+const DEFAULT_ACCESS: AccessConfig = { mode: 'allowlist', users: [] };
+
 /** Evaluate a single AccessConfig against a userId/username pair. */
-function evaluateAccess(userId: string, username: string, access: AccessConfig | undefined): boolean {
-  if (!access || access.mode === 'open') return true;
+function evaluateAccess(userId: string, username: string, access: AccessConfig): boolean {
+  if (access.mode === 'open') return true;
   if (!access.users || access.users.length === 0) {
     return access.mode === 'blocklist';
   }
@@ -27,7 +33,8 @@ function evaluateAccess(userId: string, username: string, access: AccessConfig |
  * Returns true if the user is permitted, false if denied.
  *
  * Matching is case-insensitive and checks both userId and username against the config entries.
- * When access is undefined or mode is "open", all users are permitted.
+ * Missing access config defaults to deny-all (secure by default).
+ * Use mode: "open" to explicitly allow all users.
  *
  * @param platformAccess - Platform-level access config (checked first, takes precedence)
  * @param botAccess - Bot-level access config (checked second)
@@ -39,6 +46,6 @@ export function checkUserAccess(
   platformAccess?: AccessConfig,
 ): boolean {
   // Platform takes precedence — if it denies, stop.
-  if (!evaluateAccess(userId, username, platformAccess)) return false;
-  return evaluateAccess(userId, username, botAccess);
+  if (!evaluateAccess(userId, username, platformAccess ?? DEFAULT_ACCESS)) return false;
+  return evaluateAccess(userId, username, botAccess ?? DEFAULT_ACCESS);
 }
