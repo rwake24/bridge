@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   canCall, createContext, extendContext,
   buildWorkspacePrompt, buildCallerPrompt,
-  discoverAgentDefinitions, resolveAgentDefinition,
+  discoverAgentDefinitions, discoverAgentNames, resolveAgentDefinition,
   type InterAgentContext, type BotWorkspaceEntry,
 } from './inter-agent.js';
 import type { InterAgentConfig } from '../types.js';
@@ -231,12 +231,16 @@ describe('buildCallerPrompt', () => {
 
 describe('discoverAgentDefinitions', () => {
   let tmpDir: string;
+  let origHome: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ia-test-'));
+    origHome = process.env.HOME;
+    process.env.HOME = tmpDir; // isolate from real user profile/plugins
   });
 
   afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -268,19 +272,89 @@ describe('discoverAgentDefinitions', () => {
     const defs = discoverAgentDefinitions(tmpDir);
     expect(defs.size).toBe(0);
   });
+
+  it('discovers agents from plugins', () => {
+    const pluginDir = path.join(tmpDir, '.copilot', 'installed-plugins', '_direct', 'test-plugin', 'agents');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'pluggy.agent.md'), '# Pluggy\nA plugin agent.');
+
+    const defs = discoverAgentDefinitions(tmpDir);
+    expect(defs.has('pluggy')).toBe(true);
+    expect(defs.get('pluggy')!.content).toContain('plugin agent');
+  });
+
+  it('discovers agents from user profile', () => {
+    const userAgents = path.join(tmpDir, '.copilot', 'agents');
+    fs.mkdirSync(userAgents, { recursive: true });
+    fs.writeFileSync(path.join(userAgents, 'custom.agent.md'), '# Custom\nUser custom agent.');
+
+    const defs = discoverAgentDefinitions(tmpDir);
+    expect(defs.has('custom')).toBe(true);
+  });
+
+  it('workspace agents override plugin agents of same name', () => {
+    const pluginDir = path.join(tmpDir, '.copilot', 'installed-plugins', '_direct', 'test-plugin', 'agents');
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, 'shared.agent.md'), '# Plugin version');
+
+    const wsAgents = path.join(tmpDir, 'agents');
+    fs.mkdirSync(wsAgents);
+    fs.writeFileSync(path.join(wsAgents, 'shared.agent.md'), '# Workspace version');
+
+    const defs = discoverAgentDefinitions(tmpDir);
+    expect(defs.get('shared')!.content).toContain('Workspace version');
+  });
+});
+
+describe('discoverAgentNames', () => {
+  let tmpDir: string;
+  let origHome: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ia-test-'));
+    origHome = process.env.HOME;
+    process.env.HOME = tmpDir;
+  });
+
+  afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns empty set when agents/ directory does not exist', () => {
+    const names = discoverAgentNames(tmpDir);
+    expect(names.size).toBe(0);
+  });
+
+  it('discovers agent names without reading content', () => {
+    const agentsDir = path.join(tmpDir, 'agents');
+    fs.mkdirSync(agentsDir);
+    fs.writeFileSync(path.join(agentsDir, 'network.agent.md'), '# Network Agent\nHandles network queries.');
+    fs.writeFileSync(path.join(agentsDir, 'hvac.agent.md'), '# HVAC Agent\nHandles HVAC queries.');
+    fs.writeFileSync(path.join(agentsDir, 'readme.md'), 'Not an agent file');
+
+    const names = discoverAgentNames(tmpDir);
+    expect(names.size).toBe(2);
+    expect(names.has('network')).toBe(true);
+    expect(names.has('hvac')).toBe(true);
+  });
 });
 
 describe('resolveAgentDefinition', () => {
   let tmpDir: string;
+  let origHome: string | undefined;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ia-test-'));
+    origHome = process.env.HOME;
+    process.env.HOME = tmpDir;
     const agentsDir = path.join(tmpDir, 'agents');
     fs.mkdirSync(agentsDir);
     fs.writeFileSync(path.join(agentsDir, 'network.agent.md'), '# Network Agent');
   });
 
   afterEach(() => {
+    if (origHome === undefined) delete process.env.HOME; else process.env.HOME = origHome;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
