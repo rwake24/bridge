@@ -39,7 +39,7 @@ export function getSystemPath(): string {
 }
 
 export function getLogPath(homePath: string): string {
-  return path.join(homePath, '.copilot-bridge', 'bridge.log');
+  return path.join(homePath, '.copilot-bridge', 'copilot-bridge.log');
 }
 
 // --- launchd (macOS) ---
@@ -152,7 +152,7 @@ After=network.target
 [Service]
 Type=simple
 User=${config.user}
-ExecStart=${nodePath} ${tsxPath} ${config.bridgePath}/dist/index.js
+ExecStart="${nodePath}" "${tsxPath}" "${config.bridgePath}/dist/index.js"
 WorkingDirectory=${config.bridgePath}
 Environment=HOME=${config.homePath}
 Environment=PATH=${getSystemPath()}

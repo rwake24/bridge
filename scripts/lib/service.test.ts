@@ -52,14 +52,14 @@ describe('service', () => {
       expect(plist).toContain('dist/index.js');
     });
 
-    it('uses ~/.copilot-bridge/bridge.log for log path', () => {
+    it('uses ~/.copilot-bridge/copilot-bridge.log for log path', () => {
       const plist = generateLaunchdPlist({
         label: 'com.copilot-bridge',
         bridgePath: '/Users/test/copilot-bridge',
         homePath: '/Users/test',
       });
 
-      expect(plist).toContain('/Users/test/.copilot-bridge/bridge.log');
+      expect(plist).toContain('/Users/test/.copilot-bridge/copilot-bridge.log');
       expect(plist).not.toContain('/tmp/copilot-bridge.log');
     });
 
@@ -103,19 +103,29 @@ describe('service', () => {
 
       expect(unit).toContain('UMask=0077');
     });
+
+    it('quotes paths in ExecStart for spaces', () => {
+      const unit = generateSystemdUnit({
+        bridgePath: '/home/test/my project/copilot-bridge',
+        homePath: '/home/test',
+        user: 'test',
+      });
+
+      expect(unit).toMatch(/ExecStart="[^"]*" "[^"]*" "[^"]*"/);
+    });
   });
 
   describe('getLogPath', () => {
     it('returns path under .copilot-bridge', () => {
-      expect(getLogPath('/Users/test')).toBe('/Users/test/.copilot-bridge/bridge.log');
-      expect(getLogPath('/home/test')).toBe('/home/test/.copilot-bridge/bridge.log');
+      expect(getLogPath('/Users/test')).toBe('/Users/test/.copilot-bridge/copilot-bridge.log');
+      expect(getLogPath('/home/test')).toBe('/home/test/.copilot-bridge/copilot-bridge.log');
     });
   });
 
   describe('generateNewsyslogConfig', () => {
     it('generates config with correct log path and user', () => {
-      const config = generateNewsyslogConfig('/Users/test/.copilot-bridge/bridge.log', 'test');
-      expect(config).toContain('/Users/test/.copilot-bridge/bridge.log');
+      const config = generateNewsyslogConfig('/Users/test/.copilot-bridge/copilot-bridge.log', 'test');
+      expect(config).toContain('/Users/test/.copilot-bridge/copilot-bridge.log');
       expect(config).toContain('test:');
       expect(config).toContain('600');
       expect(config).toContain('NCZ');
