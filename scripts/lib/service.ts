@@ -38,6 +38,10 @@ export function getSystemPath(): string {
   return `${nodeBinDir}:${basePath}`;
 }
 
+export function getLogPath(homePath: string): string {
+  return path.join(homePath, '.copilot-bridge', 'copilot-bridge.log');
+}
+
 // --- launchd (macOS) ---
 
 export interface LaunchdConfig {
@@ -49,6 +53,7 @@ export interface LaunchdConfig {
 export function generateLaunchdPlist(config: LaunchdConfig): string {
   const nodePath = getNodePath();
   const tsxPath = path.join(config.bridgePath, 'node_modules', '.bin', 'tsx');
+  const logPath = getLogPath(config.homePath);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -83,11 +88,14 @@ export function generateLaunchdPlist(config: LaunchdConfig): string {
     <key>ThrottleInterval</key>
     <integer>10</integer>
 
+    <key>Umask</key>
+    <integer>63</integer>
+
     <key>StandardOutPath</key>
-    <string>/tmp/copilot-bridge.log</string>
+    <string>${logPath}</string>
 
     <key>StandardErrorPath</key>
-    <string>/tmp/copilot-bridge.log</string>
+    <string>${logPath}</string>
 </dict>
 </plist>`;
 }
@@ -111,6 +119,21 @@ export function installLaunchd(plistContent: string): { installed: boolean; path
   }
 }
 
+export function generateNewsyslogConfig(logPath: string, user: string): string {
+  let group = 'staff';
+  try { group = execSync('id -gn', { encoding: 'utf-8' }).trim(); } catch { /* default */ }
+  // N=no signal, C=create new file after rotation, Z=gzip compress
+  // Rotates at 10 MB, keeps 3 archives
+  return `# Copilot Bridge log rotation — installed by copilot-bridge install-service
+# logfilename  owner:group  mode  count  size(KB)  when  flags
+${logPath}  ${user}:${group}  600  3  10240  *  NCZ
+`;
+}
+
+export function getNewsyslogInstallPath(): string {
+  return '/etc/newsyslog.d/copilot-bridge.conf';
+}
+
 // --- systemd (Linux) ---
 
 export interface SystemdConfig {
@@ -129,12 +152,13 @@ After=network.target
 [Service]
 Type=simple
 User=${config.user}
-ExecStart=${nodePath} ${tsxPath} ${config.bridgePath}/dist/index.js
+ExecStart="${nodePath}" "${tsxPath}" "${config.bridgePath}/dist/index.js"
 WorkingDirectory=${config.bridgePath}
 Environment=HOME=${config.homePath}
 Environment=PATH=${getSystemPath()}
 Restart=always
 RestartSec=10
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target`;

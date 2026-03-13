@@ -1,4 +1,5 @@
 {
+  "logLevel": "info",
   "platforms": {
     "mattermost": {
       "url": "https://chat.example.com",

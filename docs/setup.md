@@ -329,7 +329,7 @@ Management:
 ```bash
 launchctl list com.copilot-bridge                        # status
 launchctl kickstart -k gui/$(id -u)/com.copilot-bridge   # restart
-tail -f /tmp/copilot-bridge.log                          # logs
+tail -f ~/.copilot-bridge/copilot-bridge.log                     # logs
 ```
 
 > [!WARNING]

@@ -154,17 +154,17 @@ You can also do this manually — see the admin template (`templates/admin/AGENT
 
 ### Where are the logs?
 
-MCP server output goes through the Copilot CLI subprocess stderr, which is written to `/tmp/copilot-bridge.log` (configured in the launchd plist):
+MCP server output goes through the Copilot CLI subprocess stderr, which is written to `~/.copilot-bridge/copilot-bridge.log` (configured in the launchd plist):
 
 ```bash
 # CLI subprocess stderr (includes MCP startup errors)
-grep 'CLI subprocess' /tmp/copilot-bridge.log | tail -20
+grep 'CLI subprocess' ~/.copilot-bridge/copilot-bridge.log | tail -20
 
 # MCP loading messages from the bridge
-grep 'MCP' /tmp/copilot-bridge.log | tail -20
+grep 'MCP' ~/.copilot-bridge/copilot-bridge.log | tail -20
 
 # General errors
-grep -i 'error\|fail' /tmp/copilot-bridge.log | tail -20
+grep -i 'error\|fail' ~/.copilot-bridge/copilot-bridge.log | tail -20
 ```
 
 Bots can access this log file since it's in a readable path. Ask the bot to run these grep commands for self-diagnosis.
@@ -175,7 +175,7 @@ Common causes:
 
 1. **Missing env vars** — The MCP server starts but can't connect to its backend, so it reports zero tools. Check that the workspace `.env` has the required vars. After fixing, tell the bot `/reload`.
 
-2. **Server crash on startup** — Look for errors in the log: `grep 'CLI subprocess' /tmp/copilot-bridge.log | grep -i error`. Test the server manually:
+2. **Server crash on startup** — Look for errors in the log: `grep 'CLI subprocess' ~/.copilot-bridge/copilot-bridge.log | grep -i error`. Test the server manually:
    ```bash
    cd ~/.copilot-bridge/workspaces/<bot>/
    source .env
