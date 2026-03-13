@@ -243,6 +243,8 @@ async function main(): Promise<void> {
   const configWatcher = new ConfigWatcher();
   configWatcher.onReload((result) => {
     if (!result.success) return;
+    // Re-apply logLevel in case config changed it
+    setLogLevel(getConfig().logLevel ?? 'info');
     // Re-resolve Slack access handles after reload (config was re-read from disk).
     // Fires asynchronously — messages during resolution use the old resolved values.
     void (async () => {
@@ -868,19 +870,23 @@ async function handleInboundMessage(
         let response: string;
         if (!result.success) {
           response = `❌ Config reload failed: ${result.error}\nExisting config is unchanged.`;
-        } else if (result.changes.length === 0 && result.restartNeeded.length === 0) {
-          response = '✅ Config reloaded — no changes detected.';
         } else {
-          const parts: string[] = ['✅ Config reloaded.'];
-          if (result.changes.length > 0) {
-            parts.push('**Applied:**');
-            for (const c of result.changes) parts.push(`  ✓ ${c}`);
+          // Re-apply logLevel after manual reload
+          setLogLevel(getConfig().logLevel ?? 'info');
+          if (result.changes.length === 0 && result.restartNeeded.length === 0) {
+            response = '✅ Config reloaded — no changes detected.';
+          } else {
+            const parts: string[] = ['✅ Config reloaded.'];
+            if (result.changes.length > 0) {
+              parts.push('**Applied:**');
+              for (const c of result.changes) parts.push(`  ✓ ${c}`);
+            }
+            if (result.restartNeeded.length > 0) {
+              parts.push('**Restart needed:**');
+              for (const r of result.restartNeeded) parts.push(`  ⚠️ ${r}`);
+            }
+            response = parts.join('\n');
           }
-          if (result.restartNeeded.length > 0) {
-            parts.push('**Restart needed:**');
-            for (const r of result.restartNeeded) parts.push(`  ⚠️ ${r}`);
-          }
-          response = parts.join('\n');
         }
         await adapter.sendMessage(msg.channelId, response, { threadRootId: threadRoot });
         break;

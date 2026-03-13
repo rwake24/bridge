@@ -67,10 +67,7 @@ function main() {
       const newsyslogContent = generateNewsyslogConfig(logPath, user);
       const newsyslogPath = getNewsyslogInstallPath();
       try {
-        const tmpNewsyslog = path.join(os.tmpdir(), 'copilot-bridge-newsyslog.conf');
-        fs.writeFileSync(tmpNewsyslog, newsyslogContent, 'utf-8');
-        execSync(`sudo cp "${tmpNewsyslog}" "${newsyslogPath}"`, { stdio: 'inherit' });
-        fs.unlinkSync(tmpNewsyslog);
+        execSync(`sudo tee "${newsyslogPath}" > /dev/null`, { input: newsyslogContent });
         success(`Log rotation installed at ${newsyslogPath}`);
       } catch {
         blank();
