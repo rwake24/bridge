@@ -17,6 +17,7 @@ import {
   detectPlatform,
   generateLaunchdPlist, installLaunchd, getLaunchdInstallPath,
   generateSystemdUnit, getSystemdInstallPath,
+  getLogPath, generateNewsyslogConfig, getNewsyslogInstallPath,
 } from './lib/service.js';
 import { execSync } from 'node:child_process';
 
@@ -48,6 +49,10 @@ function main() {
       homePath,
     });
 
+    // Ensure log directory exists (launchd needs it before starting the process)
+    const logDir = path.join(homePath, '.copilot-bridge');
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
     const installPath = getLaunchdInstallPath();
     if (fs.existsSync(installPath)) {
       info(`Overwriting existing service at ${installPath}`);
@@ -56,11 +61,39 @@ function main() {
     const result = installLaunchd(plist);
     if (result.installed) {
       success(`Service installed at ${result.path}`);
+
+      // Install log rotation via newsyslog
+      const logPath = getLogPath(homePath);
+      const newsyslogContent = generateNewsyslogConfig(logPath, user);
+      const newsyslogPath = getNewsyslogInstallPath();
+      try {
+        const tmpNewsyslog = path.join(os.tmpdir(), 'copilot-bridge-newsyslog.conf');
+        fs.writeFileSync(tmpNewsyslog, newsyslogContent, 'utf-8');
+        execSync(`sudo cp "${tmpNewsyslog}" "${newsyslogPath}"`, { stdio: 'inherit' });
+        fs.unlinkSync(tmpNewsyslog);
+        success(`Log rotation installed at ${newsyslogPath}`);
+      } catch {
+        blank();
+        dim('  ⚠️  Could not install log rotation (sudo required).');
+        dim('  To install manually:');
+        dim(`    sudo tee ${newsyslogPath} << 'EOF'`);
+        dim(newsyslogContent.trimEnd());
+        dim('    EOF');
+      }
+
+      // Migration: warn about old log file
+      const oldLogPath = '/tmp/copilot-bridge.log';
+      if (fs.existsSync(oldLogPath)) {
+        blank();
+        info(`📋 Log path changed: ${oldLogPath} → ${logPath}`);
+        dim(`  You can delete the old log: rm ${oldLogPath}`);
+      }
+
       blank();
       dim('Management:');
       dim('  launchctl list com.copilot-bridge                     # status');
       dim('  launchctl kickstart -k gui/$(id -u)/com.copilot-bridge  # restart');
-      dim('  tail -f /tmp/copilot-bridge.log                        # logs');
+      dim(`  tail -f ${getLogPath(homePath)}  # logs`);
     } else {
       fail(`Install failed: ${result.error}`);
       process.exit(1);

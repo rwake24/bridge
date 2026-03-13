@@ -13,7 +13,7 @@ import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, canc
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { getTaskHistory } from './state/store.js';
 import { checkUserAccess } from './core/access-control.js';
-import { createLogger } from './logger.js';
+import { createLogger, setLogLevel } from './logger.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ChannelAdapter, AdapterFactory, InboundMessage, InboundReaction, MessageAttachment, AppConfig } from './types.js';
@@ -236,6 +236,7 @@ async function main(): Promise<void> {
 
   // Load configuration
   const config = loadConfig();
+  setLogLevel(config.logLevel ?? 'info');
   log.info(`Loaded ${config.channels.length} channel mapping(s)`);
 
   // Start config file watcher for hot-reload

@@ -59,6 +59,7 @@ export interface AppConfig {
     permissionMode: 'interactive' | 'autopilot';
     fallbackModels?: string[];
   };
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
 }

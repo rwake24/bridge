@@ -13,7 +13,7 @@ import { heading, printCheck, printSummary, info, dim, type CheckResult } from '
 import { runAllPrereqs } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess } from './lib/mattermost.js';
 import { getConfigPath, getConfigDir } from './lib/config-gen.js';
-import { detectPlatform, getServiceStatus } from './lib/service.js';
+import { detectPlatform, getServiceStatus, getLogPath, getNewsyslogInstallPath } from './lib/service.js';
 
 async function main() {
   const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
@@ -235,6 +235,59 @@ async function main() {
         ? `install with: ${isCli ? 'copilot-bridge install-service' : 'npm run install-service'} (requires sudo)`
         : `start with: ${isCli ? 'copilot-bridge start' : 'npm run dev (or npm start)'}`;
     const result: CheckResult = { status: 'warn', label: 'Service not running', detail: serviceHint };
+    printCheck(result);
+    results.push(result);
+  }
+
+  // --- Logging ---
+  heading('Logging');
+  const logPlatform = detectPlatform();
+  if (logPlatform === 'macos') {
+    const logPath = getLogPath(os.homedir());
+    if (fs.existsSync(logPath)) {
+      const stats = fs.statSync(logPath);
+      const sizeMb = (stats.size / (1024 * 1024)).toFixed(1);
+      const mode = stats.mode & 0o777;
+      if (mode & 0o077) {
+        const result: CheckResult = { status: 'warn', label: 'Log permissions', detail: `${logPath} mode ${mode.toString(8).padStart(3, '0')} — should be 600 (re-run install-service)` };
+        printCheck(result);
+        results.push(result);
+      } else {
+        const result: CheckResult = { status: 'pass', label: `Log: ${logPath}`, detail: `${sizeMb} MB, mode ${mode.toString(8).padStart(3, '0')}` };
+        printCheck(result);
+        results.push(result);
+      }
+      if (stats.size > 50 * 1024 * 1024) {
+        const result: CheckResult = { status: 'warn', label: 'Log size', detail: `${sizeMb} MB — configure log rotation or run install-service` };
+        printCheck(result);
+        results.push(result);
+      }
+    } else {
+      const result: CheckResult = { status: 'pass', label: `Log path: ${logPath}`, detail: 'will be created on first run' };
+      printCheck(result);
+      results.push(result);
+    }
+    const newsyslogPath = getNewsyslogInstallPath();
+    if (fs.existsSync(newsyslogPath)) {
+      const result: CheckResult = { status: 'pass', label: 'Log rotation', detail: newsyslogPath };
+      printCheck(result);
+      results.push(result);
+    } else {
+      const result: CheckResult = { status: 'warn', label: 'Log rotation', detail: 'not configured — run install-service to set up' };
+      printCheck(result);
+      results.push(result);
+    }
+    // Migration warning: old log path
+    const oldLogPath = '/tmp/copilot-bridge.log';
+    if (fs.existsSync(oldLogPath)) {
+      const oldStats = fs.statSync(oldLogPath);
+      const oldSizeMb = (oldStats.size / (1024 * 1024)).toFixed(1);
+      const result: CheckResult = { status: 'warn', label: 'Old log file', detail: `${oldLogPath} (${oldSizeMb} MB) — can be deleted after upgrading` };
+      printCheck(result);
+      results.push(result);
+    }
+  } else if (logPlatform === 'linux') {
+    const result: CheckResult = { status: 'pass', label: 'Logging', detail: 'systemd journal (auto-managed)' };
     printCheck(result);
     results.push(result);
   }

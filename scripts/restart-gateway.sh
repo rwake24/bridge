@@ -24,9 +24,9 @@ launchctl kickstart -k "$DOMAIN/$LABEL" 2>/dev/null || {
 sleep 2
 if launchctl list | grep -q "$LABEL"; then
     echo "✅ copilot-bridge restarted"
-    tail -3 /tmp/copilot-bridge.log 2>/dev/null
+    tail -3 "$HOME/.copilot-bridge/bridge.log" 2>/dev/null
 else
     echo "❌ Service not running after restart"
-    tail -10 /tmp/copilot-bridge.log 2>/dev/null
+    tail -10 "$HOME/.copilot-bridge/bridge.log" 2>/dev/null
     exit 1
 fi

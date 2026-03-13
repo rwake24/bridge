@@ -117,6 +117,14 @@ function validateAndNormalize(raw: any): AppConfig {
     }
   }
 
+  // Validate logLevel (optional)
+  if (raw.logLevel !== undefined) {
+    const validLevels = ['debug', 'info', 'warn', 'error'];
+    if (!validLevels.includes(raw.logLevel)) {
+      throw new Error(`logLevel must be one of: ${validLevels.join(', ')}`);
+    }
+  }
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -132,6 +140,7 @@ function validateAndNormalize(raw: any): AppConfig {
     platforms: raw.platforms,
     channels: raw.channels,
     defaults,
+    logLevel: raw.logLevel,
     permissions: raw.permissions,
     interAgent: raw.interAgent,
   };

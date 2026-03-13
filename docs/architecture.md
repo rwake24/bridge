@@ -98,9 +98,9 @@ HH:mm:ss.SSS [LEVEL] [tag] message
 Use `createLogger(tag)` from `src/logger.ts`. Tags identify the subsystem (e.g., `bridge`, `session`, `mattermost`, `streaming`).
 
 The log *destination* depends on how you launch the bridge:
-- **launchd**: Configured via `StandardOutPath`/`StandardErrorPath` in the plist (default: `/tmp/copilot-bridge.log`)
+- **launchd**: Configured via `StandardOutPath`/`StandardErrorPath` in the plist (default: `~/.copilot-bridge/bridge.log`)
 - **Direct**: Logs go to your terminal
-- **Redirect**: `npx tsx src/index.ts >> /var/log/copilot-bridge.log 2>&1`
+- **Redirect**: `npx tsx src/index.ts >> ~/.copilot-bridge/bridge.log 2>&1`
 
 ## Running as a macOS service
 
