@@ -650,7 +650,7 @@ async function handleMidTurnMessage(
     // Commands with complex action handlers (skills, schedule, rules) defer to serialized path.
     const SAFE_MID_TURN = new Set([
       'context', 'status', 'help', 'verbose', 'autopilot', 'yolo',
-      'mcp', 'model', 'models', 'reasoning', 'agents',
+      'model', 'models', 'reasoning', 'agents',
       'streamer-mode', 'on-air',
     ]);
 
@@ -662,7 +662,7 @@ async function handleMidTurnMessage(
       if (['model', 'models', 'status', 'reasoning'].includes(parsed.command)) {
         try { models = await sessionManager.listModels(); } catch { models = undefined; }
       }
-      const mcpInfo = parsed.command === 'mcp' ? sessionManager.getMcpServerInfo(msg.channelId) : undefined;
+      const mcpInfo = undefined;
       const contextUsage = sessionManager.getContextUsage(msg.channelId);
 
       const cmdResult = handleCommand(
@@ -815,9 +815,6 @@ async function handleInboundMessage(
     }
   }
 
-  // Fetch MCP info for /mcp command
-  const mcpInfo = parsed?.command === 'mcp' ? sessionManager.getMcpServerInfo(msg.channelId) : undefined;
-
   // Get cached context usage for /context and /status
   const contextUsage = sessionManager.getContextUsage(msg.channelId);
 
@@ -826,7 +823,7 @@ async function handleInboundMessage(
     { verbose: effPrefs.verbose, permissionMode: effPrefs.permissionMode, reasoningEffort: effPrefs.reasoningEffort },
     { workingDirectory: channelConfig.workingDirectory, bot: channelConfig.bot },
     models,
-    mcpInfo,
+    undefined,
     contextUsage,
   );
 
@@ -1145,12 +1142,60 @@ async function handleInboundMessage(
           lines.push('');
         }
 
+        // Fetch built-in tools from SDK
+        const sdkTools = await sessionManager.listSessionTools(msg.channelId);
+        if (sdkTools.length > 0) {
+          lines.push(`**Built-in Tools** (${sdkTools.length})`);
+          lines.push(sdkTools.map(t => `\`${t.name}\``).sort().join(', '));
+          lines.push('');
+        }
+
         lines.push('**Copilot Bridge Tools**');
         for (const t of BRIDGE_CUSTOM_TOOLS) lines.push(`• \`${t}\``);
 
         if (skills.length === 0 && mcpInfo.length === 0) {
           lines.push('', '_No skills or MCP servers configured. Add skills to `~/.copilot/skills/` or MCP servers to `~/.copilot/mcp-config.json`._');
         }
+
+        await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
+        break;
+      }
+
+      case 'mcp': {
+        const mcpInfo = sessionManager.getMcpServerInfo(msg.channelId);
+        if (mcpInfo.length === 0) {
+          await adapter.sendMessage(msg.channelId, '🔌 No MCP servers configured.', { threadRootId: threadRoot });
+          break;
+        }
+        const userServers = mcpInfo.filter(s => s.source === 'user');
+        const workspaceServers = mcpInfo.filter(s => s.source === 'workspace');
+        const overrideServers = mcpInfo.filter(s => s.source === 'workspace (override)');
+        const lines = ['🔌 **MCP Servers**', ''];
+        if (userServers.length > 0) {
+          lines.push('**User** (plugin + user config)');
+          for (const s of userServers) {
+            const flag = s.pending ? ' ⏳ _reload to activate_' : '';
+            lines.push(`• \`${s.name}\`${flag}`);
+          }
+          lines.push('');
+        }
+        if (workspaceServers.length > 0) {
+          lines.push('**Workspace**');
+          for (const s of workspaceServers) {
+            const flag = s.pending ? ' ⏳ _reload to activate_' : '';
+            lines.push(`• \`${s.name}\`${flag}`);
+          }
+          lines.push('');
+        }
+        if (overrideServers.length > 0) {
+          lines.push('**Workspace (overriding user)**');
+          for (const s of overrideServers) {
+            const flag = s.pending ? ' ⏳ _reload to activate_' : '';
+            lines.push(`• \`${s.name}\`${flag}`);
+          }
+          lines.push('');
+        }
+        lines.push(`Total: ${mcpInfo.length} server(s)`);
 
         await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
         break;
