@@ -155,4 +155,17 @@ describe('checkUserAccess', () => {
   it('both undefined = deny all (secure default)', () => {
     expect(checkUserAccess('U123', 'anyone', undefined, undefined)).toBe(false);
   });
+
+  // --- Reaction auth: username vs userId matching ---
+  // Reactions carry userId; the adapter resolves username separately.
+  // When username is resolved, it should match username-based allowlists.
+  it('allows reaction when resolved username matches allowlist', () => {
+    const access: AccessConfig = { mode: 'allowlist', users: ['alex'] };
+    expect(checkUserAccess('mm-user-id-abc123', 'alex', access)).toBe(true);
+  });
+
+  it('denies reaction when only userId is available and allowlist has usernames', () => {
+    const access: AccessConfig = { mode: 'allowlist', users: ['alex'] };
+    expect(checkUserAccess('mm-user-id-abc123', 'mm-user-id-abc123', access)).toBe(false);
+  });
 });
