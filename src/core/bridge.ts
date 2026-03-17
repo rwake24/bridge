@@ -66,6 +66,7 @@ export class CopilotBridge {
     reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
     mcpServers?: Record<string, MCPServerConfig>;
     skillDirectories?: string[];
+    disabledSkills?: string[];
     onPermissionRequest: PermissionHandler;
     onUserInputRequest?: UserInputHandler;
     systemMessage?: SystemMessageConfig;
@@ -82,6 +83,7 @@ export class CopilotBridge {
       reasoningEffort: opts.reasoningEffort,
       mcpServers: opts.mcpServers,
       skillDirectories: opts.skillDirectories,
+      disabledSkills: opts.disabledSkills,
       onPermissionRequest: opts.onPermissionRequest,
       onUserInputRequest: opts.onUserInputRequest,
       streaming: true,
@@ -106,6 +108,7 @@ export class CopilotBridge {
       reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
       mcpServers?: Record<string, MCPServerConfig>;
       skillDirectories?: string[];
+      disabledSkills?: string[];
       tools?: Tool[];
       hooks?: SessionHooks;
     },
@@ -126,6 +129,7 @@ export class CopilotBridge {
       reasoningEffort: opts?.reasoningEffort,
       mcpServers: opts?.mcpServers,
       skillDirectories: opts?.skillDirectories,
+      disabledSkills: opts?.disabledSkills,
       tools: opts?.tools,
       hooks: opts?.hooks,
     });

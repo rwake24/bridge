@@ -493,11 +493,13 @@ export class SessionManager {
   }
 
   /** Get skill info for a channel — discovers skills and reads their descriptions from SKILL.md frontmatter. */
-  getSkillInfo(channelId: string): { name: string; description: string; source: string; pending?: boolean }[] {
+  getSkillInfo(channelId: string): { name: string; description: string; source: string; pending?: boolean; disabled?: boolean }[] {
     const workingDirectory = this.resolveWorkingDirectory(channelId);
     const dirs = discoverSkillDirectories(workingDirectory);
     const sessionDirs = this.sessionSkillDirs.get(channelId);
-    const skills: { name: string; description: string; source: string; pending?: boolean }[] = [];
+    const prefs = getChannelPrefs(channelId);
+    const disabledSet = new Set(prefs?.disabledSkills ?? []);
+    const skills: { name: string; description: string; source: string; pending?: boolean; disabled?: boolean }[] = [];
     const home = process.env.HOME;
 
     for (const dir of dirs) {
@@ -523,7 +525,7 @@ export class SessionManager {
         } catch { /* skip */ }
       }
 
-      skills.push({ name, description, source, pending: sessionDirs ? !sessionDirs.has(dir) : undefined });
+      skills.push({ name, description, source, pending: sessionDirs ? !sessionDirs.has(dir) : undefined, disabled: disabledSet.has(name) });
     }
 
     return skills.sort((a, b) => a.name.localeCompare(b.name));
@@ -846,6 +848,7 @@ export class SessionManager {
       threadedReplies: storedPrefs?.threadedReplies ?? configChannel.threadedReplies,
       permissionMode: storedPrefs?.permissionMode ?? configChannel.permissionMode,
       reasoningEffort: storedPrefs?.reasoningEffort ?? (configChannel as any).reasoningEffort ?? null,
+      disabledSkills: storedPrefs?.disabledSkills,
     };
   }
 
@@ -1084,6 +1087,7 @@ export class SessionManager {
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
     const customTools = this.buildCustomTools(channelId);
+    const disabledSkills = prefs.disabledSkills?.length ? prefs.disabledSkills : undefined;
 
     // Resolve fallback configuration
     const configChannel = getChannelConfig(channelId);
@@ -1114,6 +1118,7 @@ export class SessionManager {
           reasoningEffort: reasoningEffort ?? undefined,
           mcpServers: resolvedMcpServers,
           skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+          disabledSkills,
           onPermissionRequest: (request, invocation) => this.handlePermissionRequest(channelId, request, invocation),
           onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
           tools: customTools.length > 0 ? customTools : undefined,
@@ -1163,6 +1168,7 @@ export class SessionManager {
     const reasoningEffort = prefs.reasoningEffort as 'low' | 'medium' | 'high' | 'xhigh' | undefined;
     const skillDirectories = discoverSkillDirectories(workingDirectory);
     const customTools = this.buildCustomTools(channelId);
+    const disabledSkills = prefs.disabledSkills?.length ? prefs.disabledSkills : undefined;
 
     const mcpServers = this.resolveMcpServers(workingDirectory);
     const rawHooks = await this.resolveHooks(workingDirectory);
@@ -1180,6 +1186,7 @@ export class SessionManager {
         reasoningEffort: reasoningEffort ?? undefined,
         mcpServers,
         skillDirectories: skillDirectories.length > 0 ? skillDirectories : undefined,
+        disabledSkills,
         tools: customTools.length > 0 ? customTools : undefined,
         hooks,
       })

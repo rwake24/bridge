@@ -6,12 +6,11 @@ import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './
 import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
-import { getChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules } from './state/store.js';
+import { getChannelPrefs, setChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules, getTaskHistory } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
 import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
-import { getTaskHistory } from './state/store.js';
 import { checkUserAccess } from './core/access-control.js';
 import { createLogger, setLogLevel } from './logger.js';
 import fs from 'node:fs';
@@ -1169,13 +1168,27 @@ async function handleInboundMessage(
         const lines: string[] = ['🧰 **Skills & Tools**', ''];
 
         if (skills.length > 0) {
-          lines.push('**Skills**');
-          for (const s of skills) {
-            const desc = s.description ? ` — ${s.description}` : '';
-            const flag = s.pending ? ' ⏳ _reload to activate_' : '';
-            lines.push(`• \`${s.name}\`${desc} _(${s.source})_${flag}`);
+          const active = skills.filter(s => !s.disabled);
+          const disabled = skills.filter(s => s.disabled);
+
+          if (active.length > 0) {
+            lines.push('🟢 **Active Skills**');
+            for (const s of active) {
+              const desc = s.description ? ` — ${s.description}` : '';
+              const flag = s.pending ? ' ⏳ _reload to activate_' : '';
+              lines.push(`• \`${s.name}\`${desc} _(${s.source})_${flag}`);
+            }
+            lines.push('');
           }
-          lines.push('');
+
+          if (disabled.length > 0) {
+            lines.push('🔴 **Disabled Skills**');
+            for (const s of disabled) {
+              const desc = s.description ? ` — ${s.description}` : '';
+              lines.push(`• \`${s.name}\`${desc} _(${s.source})_`);
+            }
+            lines.push('');
+          }
         }
 
         if (mcpInfo.length > 0) {
@@ -1212,6 +1225,78 @@ async function handleInboundMessage(
         }
 
         await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
+        break;
+      }
+
+      case 'skill_toggle': {
+        const { action: toggleAction, targets } = cmdResult.payload as { action: 'enable' | 'disable'; targets: string[] };
+        const skills = sessionManager.getSkillInfo(msg.channelId);
+        const prefs = getChannelPrefs(msg.channelId);
+        const currentDisabled = new Set(prefs?.disabledSkills ?? []);
+
+        // Handle "all" keyword (only valid as sole target)
+        if (targets.some(t => t.toLowerCase() === 'all')) {
+          if (targets.length > 1) {
+            await adapter.sendMessage(msg.channelId, '⚠️ `all` cannot be combined with other skill names.', { threadRootId: threadRoot });
+            break;
+          }
+          if (toggleAction === 'disable') {
+            const allNames = [...new Set(skills.map(s => s.name))];
+            setChannelPrefs(msg.channelId, { disabledSkills: allNames });
+            await adapter.sendMessage(msg.channelId, `🔴 Disabled all ${allNames.length} skills. Use \`/reload\` to apply.`, { threadRootId: threadRoot });
+          } else {
+            setChannelPrefs(msg.channelId, { disabledSkills: [] });
+            await adapter.sendMessage(msg.channelId, `🟢 Enabled all skills. Use \`/reload\` to apply.`, { threadRootId: threadRoot });
+          }
+          break;
+        }
+
+        const matched: string[] = [];
+        const notFound: string[] = [];
+        const ambiguous: string[] = [];
+
+        for (const target of targets) {
+          const lower = target.toLowerCase();
+          const exact = skills.find(s => s.name.toLowerCase() === lower);
+          if (exact) {
+            if (toggleAction === 'disable') currentDisabled.add(exact.name);
+            else currentDisabled.delete(exact.name);
+            matched.push(exact.name);
+            continue;
+          }
+          const substringMatches = skills.filter(s => s.name.toLowerCase().includes(lower));
+          if (substringMatches.length === 1) {
+            const skill = substringMatches[0];
+            if (toggleAction === 'disable') currentDisabled.add(skill.name);
+            else currentDisabled.delete(skill.name);
+            matched.push(skill.name);
+          } else if (substringMatches.length > 1) {
+            ambiguous.push(`"${target}" matches: ${substringMatches.map(s => `\`${s.name}\``).join(', ')}`);
+          } else {
+            notFound.push(target);
+          }
+        }
+
+        if (matched.length > 0) {
+          setChannelPrefs(msg.channelId, { disabledSkills: [...currentDisabled] });
+        }
+
+        const lines: string[] = [];
+        if (matched.length > 0) {
+          const verb = toggleAction === 'disable' ? '🔴 Disabled' : '🟢 Enabled';
+          const names = matched.map(n => `\`${n}\``).join(', ');
+          lines.push(`${verb} ${names}.`);
+        }
+        if (ambiguous.length > 0) {
+          lines.push(`⚠️ Ambiguous: ${ambiguous.join('; ')}`);
+        }
+        if (notFound.length > 0) {
+          lines.push(`❌ No match: ${notFound.map(n => `"${n}"`).join(', ')}`);
+        }
+        if (matched.length > 0) {
+          lines.push('Use `/reload` to apply.');
+        }
+        await adapter.sendMessage(msg.channelId, lines.join(' '), { threadRootId: threadRoot });
         break;
       }
 
