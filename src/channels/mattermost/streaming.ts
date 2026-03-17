@@ -64,6 +64,10 @@ export class StreamingHandler {
     const stream = this.activeStreams.get(streamKey);
     if (!stream) return;
 
+    // Don't wipe existing content with an empty replace — the CLI sends empty
+    // assistant.message events as a signal before tool calls, not as real content.
+    if (!content && stream.content) return;
+
     stream.content = content;
     stream.pendingUpdate = content;
 
