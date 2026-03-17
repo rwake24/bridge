@@ -373,3 +373,74 @@ describe('/always command', () => {
     expect(result.action).toBe('remember');
   });
 });
+
+// --- /skills command ---
+
+describe('/skills command', () => {
+  it('/skills with no args returns skills action', () => {
+    const result = handleCommand('ch-skills-1', '/skills');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skills');
+  });
+
+  it('/tools aliases to skills', () => {
+    const result = handleCommand('ch-skills-2', '/tools');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skills');
+  });
+
+  it('/skills disable <name> returns skill_toggle with single target', () => {
+    const result = handleCommand('ch-skills-3', '/skills disable humanizer');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'disable', targets: ['humanizer'] });
+  });
+
+  it('/skills enable <name> returns skill_toggle', () => {
+    const result = handleCommand('ch-skills-4', '/skills enable humanizer');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'enable', targets: ['humanizer'] });
+  });
+
+  it('/skills disable all passes "all" as target', () => {
+    const result = handleCommand('ch-skills-5', '/skills disable all');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'disable', targets: ['all'] });
+  });
+
+  it('/skills enable all passes "all" as target', () => {
+    const result = handleCommand('ch-skills-6', '/skills enable all');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'enable', targets: ['all'] });
+  });
+
+  it('/skills disable with multiple names returns all targets', () => {
+    const result = handleCommand('ch-skills-7', '/skills disable humanizer pdf xlsx');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'disable', targets: ['humanizer', 'pdf', 'xlsx'] });
+  });
+
+  it('/skills enable with multiple names returns all targets', () => {
+    const result = handleCommand('ch-skills-8', '/skills enable humanizer pdf');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'enable', targets: ['humanizer', 'pdf'] });
+  });
+
+  it('/skills with unrecognized subcommand falls through to skills action', () => {
+    const result = handleCommand('ch-skills-9', '/skills info');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skills');
+  });
+
+  it('/tools disable also works as alias', () => {
+    const result = handleCommand('ch-skills-10', '/tools disable humanizer');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('skill_toggle');
+    expect(result.payload).toEqual({ action: 'disable', targets: ['humanizer'] });
+  });
+});

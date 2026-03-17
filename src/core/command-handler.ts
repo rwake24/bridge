@@ -40,7 +40,7 @@ export interface CommandResult {
   handled: boolean;
   response?: string;
   action?: 'new_session' | 'reload_session' | 'reload_config' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
-           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'mcp' | 'plan';
+           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'skill_toggle' | 'mcp' | 'plan';
   payload?: any;
 }
 
@@ -460,8 +460,18 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       return { handled: true, action: 'schedule', payload: parsed.args?.trim() };
 
     case 'skills':
-    case 'tools':
+    case 'tools': {
+      const args = parsed.args?.trim();
+      if (args) {
+        const match = args.match(/^(enable|disable)\s+(.+)$/i);
+        if (match) {
+          const action = match[1].toLowerCase() as 'enable' | 'disable';
+          const targets = match[2].trim().split(/\s+/);
+          return { handled: true, action: 'skill_toggle', payload: { action, targets } };
+        }
+      }
       return { handled: true, action: 'skills' };
+    }
 
     case 'help': {
       const showAll = parsed.args?.trim().toLowerCase() === 'all';
@@ -516,6 +526,9 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '',
           '**Tools & Info**',
           '`/skills` — Show available skills and MCP tools',
+          '`/skills enable <name...>` — Enable skills for this channel',
+          '`/skills disable <name...>` — Disable skills for this channel',
+          '`/skills enable|disable all` — Enable or disable all skills',
           '`/mcp` — Show MCP servers and their source',
           '`/plan` — Toggle plan mode (on/off)',
           '`/plan show` — Show current plan',

@@ -92,6 +92,7 @@ See the [Setup Guide — Running as a Service](docs/setup.md#running-as-a-servic
 | `/schedule` | `/schedules`, `/tasks` | Manage scheduled tasks (list, cancel, pause, resume, history) |
 | **Tools & Info** | | |
 | `/skills` | `/tools` | Show available skills and MCP tools |
+| `/skills enable\|disable <name...>` | | Enable or disable skills per channel (`all` for bulk) |
 | `/mcp` | | Show MCP servers and their source |
 | `/streamer-mode` | `/on-air` | Toggle streamer mode (hides preview/internal models) |
 | `/help` | | Show common commands; `/help all` for full list |

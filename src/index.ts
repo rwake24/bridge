@@ -6,7 +6,7 @@ import { formatEvent, formatPermissionRequest, formatUserInputRequest } from './
 import { WorkspaceWatcher, initWorkspace, getWorkspacePath } from './core/workspace-manager.js';
 import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
-import { getChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules } from './state/store.js';
+import { getChannelPrefs, setChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
 import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
@@ -1169,13 +1169,27 @@ async function handleInboundMessage(
         const lines: string[] = ['🧰 **Skills & Tools**', ''];
 
         if (skills.length > 0) {
-          lines.push('**Skills**');
-          for (const s of skills) {
-            const desc = s.description ? ` — ${s.description}` : '';
-            const flag = s.pending ? ' ⏳ _reload to activate_' : '';
-            lines.push(`• \`${s.name}\`${desc} _(${s.source})_${flag}`);
+          const active = skills.filter(s => !s.disabled);
+          const disabled = skills.filter(s => s.disabled);
+
+          if (active.length > 0) {
+            lines.push('🟢 **Active Skills**');
+            for (const s of active) {
+              const desc = s.description ? ` — ${s.description}` : '';
+              const flag = s.pending ? ' ⏳ _reload to activate_' : '';
+              lines.push(`• \`${s.name}\`${desc} _(${s.source})_${flag}`);
+            }
+            lines.push('');
           }
-          lines.push('');
+
+          if (disabled.length > 0) {
+            lines.push('🔴 **Disabled Skills**');
+            for (const s of disabled) {
+              const desc = s.description ? ` — ${s.description}` : '';
+              lines.push(`• \`${s.name}\`${desc} _(${s.source})_`);
+            }
+            lines.push('');
+          }
         }
 
         if (mcpInfo.length > 0) {
@@ -1212,6 +1226,64 @@ async function handleInboundMessage(
         }
 
         await adapter.sendMessage(msg.channelId, lines.join('\n'), { threadRootId: threadRoot });
+        break;
+      }
+
+      case 'skill_toggle': {
+        const { action: toggleAction, targets } = cmdResult.payload as { action: 'enable' | 'disable'; targets: string[] };
+        const skills = sessionManager.getSkillInfo(msg.channelId);
+        const prefs = getChannelPrefs(msg.channelId);
+        const currentDisabled = new Set(prefs?.disabledSkills ?? []);
+
+        // Handle "all" keyword (only valid as sole target)
+        if (targets.length === 1 && targets[0].toLowerCase() === 'all') {
+          if (toggleAction === 'disable') {
+            const allNames = skills.map(s => s.name);
+            setChannelPrefs(msg.channelId, { disabledSkills: allNames });
+            await adapter.sendMessage(msg.channelId, `🔴 Disabled all ${allNames.length} skills. Use \`/reload\` to apply.`, { threadRootId: threadRoot });
+          } else {
+            setChannelPrefs(msg.channelId, { disabledSkills: [] });
+            await adapter.sendMessage(msg.channelId, `🟢 Enabled all skills. Use \`/reload\` to apply.`, { threadRootId: threadRoot });
+          }
+          break;
+        }
+
+        const matched: string[] = [];
+        const notFound: string[] = [];
+
+        for (const target of targets) {
+          const exact = skills.find(s => s.name.toLowerCase() === target.toLowerCase());
+          const substring = !exact ? skills.find(s => s.name.toLowerCase().includes(target.toLowerCase())) : undefined;
+          const skill = exact ?? substring;
+          if (skill) {
+            if (toggleAction === 'disable') {
+              currentDisabled.add(skill.name);
+            } else {
+              currentDisabled.delete(skill.name);
+            }
+            matched.push(skill.name);
+          } else {
+            notFound.push(target);
+          }
+        }
+
+        if (matched.length > 0) {
+          setChannelPrefs(msg.channelId, { disabledSkills: [...currentDisabled] });
+        }
+
+        const lines: string[] = [];
+        if (matched.length > 0) {
+          const verb = toggleAction === 'disable' ? '🔴 Disabled' : '🟢 Enabled';
+          const names = matched.map(n => `\`${n}\``).join(', ');
+          lines.push(`${verb} ${names}.`);
+        }
+        if (notFound.length > 0) {
+          lines.push(`❌ No match: ${notFound.map(n => `"${n}"`).join(', ')}`);
+        }
+        if (matched.length > 0) {
+          lines.push('Use `/reload` to apply.');
+        }
+        await adapter.sendMessage(msg.channelId, lines.join(' '), { threadRootId: threadRoot });
         break;
       }
 

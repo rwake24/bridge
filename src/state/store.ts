@@ -202,6 +202,11 @@ function getDb(): Database.Database {
   } catch {
     // Column already exists
   }
+  try {
+    _db.exec(`ALTER TABLE channel_prefs ADD COLUMN disabled_skills TEXT`);
+  } catch {
+    // Column already exists
+  }
 
   return _db;
 }
@@ -243,6 +248,7 @@ export interface ChannelPrefs {
   permissionMode?: string;
   reasoningEffort?: string | null;
   sessionMode?: string;
+  disabledSkills?: string[];
 }
 
 export function getChannelPrefs(channelId: string): ChannelPrefs | null {
@@ -258,6 +264,7 @@ export function getChannelPrefs(channelId: string): ChannelPrefs | null {
     permissionMode: row.permission_mode ?? undefined,
     reasoningEffort: row.reasoning_effort ?? null,
     sessionMode: row.session_mode ?? undefined,
+    disabledSkills: row.disabled_skills ? JSON.parse(row.disabled_skills) : undefined,
   };
 }
 
@@ -277,6 +284,7 @@ export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>)
     if (prefs.permissionMode !== undefined) { updates.push('permission_mode = ?'); values.push(prefs.permissionMode); }
     if (prefs.reasoningEffort !== undefined) { updates.push('reasoning_effort = ?'); values.push(prefs.reasoningEffort); }
     if (prefs.sessionMode !== undefined) { updates.push('session_mode = ?'); values.push(prefs.sessionMode); }
+    if (prefs.disabledSkills !== undefined) { updates.push('disabled_skills = ?'); values.push(JSON.stringify(prefs.disabledSkills)); }
 
     if (updates.length > 0) {
       updates.push("updated_at = datetime('now')");
@@ -285,8 +293,8 @@ export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>)
     }
   } else {
     db.prepare(
-      `INSERT INTO channel_prefs (channel_id, model, agent, verbose, threaded_replies, permission_mode, reasoning_effort, session_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO channel_prefs (channel_id, model, agent, verbose, threaded_replies, permission_mode, reasoning_effort, session_mode, disabled_skills)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       channelId,
       prefs.model ?? null,
@@ -296,6 +304,7 @@ export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>)
       prefs.permissionMode ?? null,
       prefs.reasoningEffort ?? null,
       prefs.sessionMode ?? null,
+      prefs.disabledSkills ? JSON.stringify(prefs.disabledSkills) : null,
     );
   }
 }
