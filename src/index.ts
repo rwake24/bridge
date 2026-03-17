@@ -1236,9 +1236,13 @@ async function handleInboundMessage(
         const currentDisabled = new Set(prefs?.disabledSkills ?? []);
 
         // Handle "all" keyword (only valid as sole target)
-        if (targets.length === 1 && targets[0].toLowerCase() === 'all') {
+        if (targets.some(t => t.toLowerCase() === 'all')) {
+          if (targets.length > 1) {
+            await adapter.sendMessage(msg.channelId, '⚠️ `all` cannot be combined with other skill names.', { threadRootId: threadRoot });
+            break;
+          }
           if (toggleAction === 'disable') {
-            const allNames = skills.map(s => s.name);
+            const allNames = [...new Set(skills.map(s => s.name))];
             setChannelPrefs(msg.channelId, { disabledSkills: allNames });
             await adapter.sendMessage(msg.channelId, `🔴 Disabled all ${allNames.length} skills. Use \`/reload\` to apply.`, { threadRootId: threadRoot });
           } else {
