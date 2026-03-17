@@ -312,7 +312,7 @@ export function setChannelPrefs(channelId: string, prefs: Partial<ChannelPrefs>)
       prefs.permissionMode ?? null,
       prefs.reasoningEffort ?? null,
       prefs.sessionMode ?? null,
-      prefs.disabledSkills ? JSON.stringify(prefs.disabledSkills) : null,
+      prefs.disabledSkills?.length ? JSON.stringify(prefs.disabledSkills) : null,
     );
   }
 }
