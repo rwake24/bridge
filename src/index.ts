@@ -1587,6 +1587,8 @@ async function handleSessionEvent(
     log.debug(`SDK ${event.type}: ${JSON.stringify(event.data).slice(0, 400)}`);
   } else if (event.type?.startsWith('tool.')) {
     log.info(`SDK ${event.type}: ${JSON.stringify(event.data).slice(0, 400)}`);
+  } else if (event.type === 'session.usage_info') {
+    log.debug(`SDK ${event.type}: ${JSON.stringify(event.data)}`);
   } else {
     log.debug(`SDK event: ${event.type}`);
   }
