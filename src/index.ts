@@ -13,6 +13,7 @@ import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, canc
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { checkUserAccess } from './core/access-control.js';
 import { createLogger, setLogLevel } from './logger.js';
+import { loadAccounts } from './core/accounts.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ChannelAdapter, AdapterFactory, InboundMessage, InboundReaction, MessageAttachment, AppConfig } from './types.js';
@@ -241,6 +242,9 @@ async function main(): Promise<void> {
   const config = loadConfig();
   setLogLevel(config.logLevel ?? 'info');
   log.info(`Loaded ${config.channels.length} channel mapping(s)`);
+
+  // Load account/pipeline data (optional — silent no-op if accounts.json not found)
+  loadAccounts();
 
   // Start config file watcher for hot-reload
   const configWatcher = new ConfigWatcher();
@@ -669,6 +673,7 @@ async function handleMidTurnMessage(
       'context', 'status', 'help', 'verbose', 'yolo',
       'model', 'models', 'agents',
       'streamer-mode', 'on-air',
+      'pipeline', 'accounts', 'account',
     ]);
 
     if (SAFE_MID_TURN.has(parsed.command)) {
