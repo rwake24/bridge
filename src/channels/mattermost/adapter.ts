@@ -337,6 +337,8 @@ export class MattermostAdapter implements ChannelAdapter {
       name: opts.name,
       display_name: opts.displayName,
       type: opts.private ? 'P' : 'O',
+      ...(opts.purpose !== undefined ? { purpose: opts.purpose } : {}),
+      ...(opts.header !== undefined ? { header: opts.header } : {}),
     } as any);
     log.info(`Created ${opts.private ? 'private' : 'public'} channel "${opts.name}" (${channel.id})`);
     return channel.id;

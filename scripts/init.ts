@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
 import { askRequired, askSecret, confirm, choose, pressEnter, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
-import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo } from './lib/mattermost.js';
+import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo, getMyTeams, getChannelByTeamAndName, createMattermostChannel, addBotToChannel, AGENT0_CHANNELS, type MattermostBotInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, readExistingConfig, mergeConfig, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
 import { generateManifestUrl, validateSlackToken, validateAppToken, resolveSlackUser } from './lib/slack.js';
 import { detectPlatform, getServiceStatus } from './lib/service.js';
@@ -201,6 +201,98 @@ async function main() {
       if (bots.length >= 1) {
         addMore = await confirm('Add another bot?', false);
       }
+    }
+
+    // Auto-create agent0 channel structure
+    heading('Mattermost Channel Structure');
+    info('agent0 uses dedicated channels for briefings, tasks, logs, and more.');
+    dim(`Channels: ${AGENT0_CHANNELS.map(c => c.name).join(', ')}\n`);
+
+    let autoCreatedBotInfo: MattermostBotInfo | undefined;
+    // Prefer the admin bot for channel creation; fall back to the first bot
+    const adminBot = bots.find(b => b.admin) ?? bots[0];
+
+    // Re-validate to capture bot ID for membership operations
+    const botValidation = await validateBotToken(mmUrl, adminBot.token);
+    if (botValidation.result.status === 'pass' && botValidation.bot) {
+      autoCreatedBotInfo = botValidation.bot;
+    }
+
+    const autoCreate = await confirm('Auto-create these channels in Mattermost now?', true);
+    if (autoCreate && autoCreatedBotInfo) {
+      // Select team
+      const teams = await getMyTeams(mmUrl, adminBot.token);
+      let selectedTeamId: string | undefined;
+      if (teams.length === 0) {
+        warn('No teams found for this bot — skipping auto-create.');
+      } else if (teams.length === 1) {
+        selectedTeamId = teams[0].id;
+        info(`Using team: ${teams[0].displayName || teams[0].name}`);
+      } else {
+        const teamIdx = await choose('Which team should the channels be created in?', teams.map(t => t.displayName || t.name));
+        selectedTeamId = teams[teamIdx].id;
+      }
+
+      if (selectedTeamId) {
+        const workspacesDir = path.join(getConfigDir(), 'workspaces');
+        let botForChannels = bots[0].name;
+        if (bots.length > 1) {
+          const idx = await choose('Which bot should be assigned to these channels?', bots.map(b => b.name));
+          botForChannels = bots[idx].name;
+        }
+
+        blank();
+        for (const def of AGENT0_CHANNELS) {
+          // Check if the channel already exists
+          const existing = await getChannelByTeamAndName(mmUrl, adminBot.token, selectedTeamId, def.name);
+          let channelId: string | undefined;
+
+          if (existing) {
+            printCheck({ status: 'warn', label: `#${def.name}`, detail: 'already exists — skipping creation' });
+            channelId = existing.id;
+          } else {
+            const { result, channel } = await createMattermostChannel(mmUrl, adminBot.token, {
+              teamId: selectedTeamId,
+              name: def.name,
+              displayName: def.displayName,
+              purpose: def.purpose,
+              header: def.header,
+            });
+            printCheck(result);
+            channelId = channel?.id;
+          }
+
+          if (channelId) {
+            // Ensure the bot is a member
+            if (autoCreatedBotInfo.id) {
+              const memberResult = await addBotToChannel(mmUrl, adminBot.token, channelId, autoCreatedBotInfo.id);
+              if (memberResult.status !== 'pass') {
+                printCheck(memberResult);
+              }
+            }
+
+            // Create the workspace directory for this channel
+            const workDir = path.join(workspacesDir, def.name);
+            if (!fs.existsSync(workDir)) {
+              fs.mkdirSync(workDir, { recursive: true });
+            }
+
+            channels.push({
+              id: channelId,
+              name: def.displayName,
+              platform: 'mattermost',
+              bot: botForChannels,
+              workingDirectory: workDir,
+              triggerMode: 'mention',
+              threadedReplies: false,
+            });
+          }
+        }
+        blank();
+        success(`Created/verified ${AGENT0_CHANNELS.length} agent0 channels.`);
+      }
+    } else if (autoCreate && !autoCreatedBotInfo) {
+      warn('Could not retrieve bot identity — skipping auto-create. Re-run after verifying the bot token.');
     }
 
     // Mattermost channels
