@@ -1575,7 +1575,7 @@ async function handleSessionEvent(
   } else if (event.type === 'session.compaction_complete') {
     const d = event.data ?? {};
     log.info(`[${channelId}] Context compaction complete: success=${d.success}, tokens removed=${d.tokensRemoved ?? '?'}, messages removed=${d.messagesRemoved ?? '?'}, checkpoint=#${d.checkpointNumber ?? '?'}`);
-    if (d.preCompactionTokens || d.postCompactionTokens) {
+    if (d.preCompactionTokens != null || d.postCompactionTokens != null) {
       log.debug(`[${channelId}] Compaction detail: ${d.preCompactionTokens} → ${d.postCompactionTokens} tokens`);
     }
   }
