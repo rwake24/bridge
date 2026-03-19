@@ -1123,6 +1123,7 @@ export class SessionManager {
           onUserInputRequest: (request, invocation) => this.handleUserInputRequest(channelId, request, invocation),
           tools: customTools.length > 0 ? customTools : undefined,
           hooks,
+          infiniteSessions: getConfig().infiniteSessions,
         })
       );
     };
@@ -1189,6 +1190,7 @@ export class SessionManager {
         disabledSkills,
         tools: customTools.length > 0 ? customTools : undefined,
         hooks,
+        infiniteSessions: getConfig().infiniteSessions,
       })
     );
 

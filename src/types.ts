@@ -61,6 +61,7 @@ export interface AppConfig {
     allowWorkspaceHooks?: boolean;
   };
   logLevel?: 'debug' | 'info' | 'warn' | 'error';
+  infiniteSessions?: boolean;
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
 }

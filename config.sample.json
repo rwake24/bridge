@@ -38,6 +38,7 @@
     "verbose": false,
     "permissionMode": "interactive"
   },
+  "infiniteSessions": false,
   "permissions": {
     "_comment": "CLI-compatible permission syntax: shell(cmd), write, read, MCP_SERVER(tool)",
     "allow": [

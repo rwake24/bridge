@@ -73,6 +73,7 @@ export class CopilotBridge {
     customAgents?: CustomAgentConfig[];
     tools?: Tool[];
     hooks?: SessionHooks;
+    infiniteSessions?: boolean;
   }): Promise<CopilotSession> {
     await this.start();
     const session = await this.client.createSession({
@@ -91,6 +92,7 @@ export class CopilotBridge {
       customAgents: opts.customAgents,
       tools: opts.tools,
       hooks: opts.hooks,
+      ...(opts.infiniteSessions ? { infiniteSessions: { enabled: true } } : { infiniteSessions: { enabled: false } }),
     });
     this.sessions.set(session.sessionId, session);
     return session;
@@ -111,6 +113,7 @@ export class CopilotBridge {
       disabledSkills?: string[];
       tools?: Tool[];
       hooks?: SessionHooks;
+      infiniteSessions?: boolean;
     },
   ): Promise<CopilotSession> {
     await this.start();
@@ -132,6 +135,7 @@ export class CopilotBridge {
       disabledSkills: opts?.disabledSkills,
       tools: opts?.tools,
       hooks: opts?.hooks,
+      ...(opts?.infiniteSessions ? { infiniteSessions: { enabled: true } } : { infiniteSessions: { enabled: false } }),
     });
     this.sessions.set(session.sessionId, session);
     return session;
