@@ -46,6 +46,22 @@ export interface PermissionsConfig {
   allowUrls?: string[];   // pre-approved URL domains
 }
 
+// A single scheduled job defined in config.json
+export interface ScheduledJobConfig {
+  id: string;              // unique job name, e.g. "morning-briefing"
+  cron: string;            // cron expression, e.g. "30 7 * * 1-5"
+  channel: string;         // target channel ID or configured channel name
+  prompt: string;          // prompt sent to the AI session when the job fires
+  description?: string;    // human-readable label (defaults to id)
+  enabled?: boolean;       // initial enabled state (default: true)
+}
+
+// Scheduler configuration block in config.json
+export interface SchedulerConfig {
+  timezone?: string;       // IANA timezone for all jobs (e.g. "America/Chicago")
+  jobs: ScheduledJobConfig[];
+}
+
 // Full app config
 export interface AppConfig {
   platforms: Record<string, PlatformConfig>;
@@ -64,6 +80,7 @@ export interface AppConfig {
   infiniteSessions?: boolean;
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
+  scheduler?: SchedulerConfig;
 }
 
 // Inter-agent communication config

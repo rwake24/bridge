@@ -88,5 +88,43 @@
       "copilot": { "canCall": ["bob"], "canBeCalledBy": ["bob"] },
       "bob": { "canCall": ["copilot"], "canBeCalledBy": ["copilot"] }
     }
+  },
+  "_comment_scheduler": "Optional: config-defined recurring jobs. 'channel' must match a configured channel id or name.",
+  "scheduler": {
+    "timezone": "America/Chicago",
+    "jobs": [
+      {
+        "id": "morning-briefing",
+        "cron": "30 7 * * 1-5",
+        "channel": "CHANNEL_ID_OR_NAME",
+        "description": "Morning briefing",
+        "prompt": "Good morning! Please give me a morning briefing: summarize any overnight emails addressed to me, list today's calendar events, highlight open tasks, and provide prep links for any meetings today.",
+        "enabled": true
+      },
+      {
+        "id": "email-scan",
+        "cron": "0 8,10,12,14,16,18 * * 1-5",
+        "channel": "CHANNEL_ID_OR_NAME",
+        "description": "Email scan",
+        "prompt": "Please scan my recent emails: filter for messages addressed directly to me, summarize each one briefly, and flag any that appear urgent or require a response today.",
+        "enabled": true
+      },
+      {
+        "id": "evening-recap",
+        "cron": "0 17 * * 1-5",
+        "channel": "CHANNEL_ID_OR_NAME",
+        "description": "Evening recap",
+        "prompt": "Please give me an end-of-day recap: summarize what was accomplished today, list any unresolved items or open threads, and give a brief preview of tomorrow's calendar and priorities.",
+        "enabled": true
+      },
+      {
+        "id": "weekly-pipeline",
+        "cron": "0 8 * * 1",
+        "channel": "CHANNEL_ID_OR_NAME",
+        "description": "Weekly pipeline review",
+        "prompt": "Please run the weekly pipeline review: check the status of all active accounts, flag any deals at risk, highlight upcoming renewals this week, and summarize motion status for each account.",
+        "enabled": true
+      }
+    ]
   }
 }

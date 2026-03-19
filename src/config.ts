@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig } from './types.js';
+import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig, SchedulerConfig } from './types.js';
 import { getDynamicChannel } from './state/store.js';
 import { createLogger } from './logger.js';
 
@@ -125,6 +125,51 @@ function validateAndNormalize(raw: any): AppConfig {
     }
   }
 
+  // Validate scheduler config (optional)
+  let scheduler: SchedulerConfig | undefined;
+  if (raw.scheduler !== undefined) {
+    const s = raw.scheduler;
+    if (typeof s !== 'object' || Array.isArray(s)) {
+      throw new Error('"scheduler" must be an object');
+    }
+    if (s.timezone !== undefined && typeof s.timezone !== 'string') {
+      throw new Error('"scheduler.timezone" must be a string');
+    }
+    if (!Array.isArray(s.jobs)) {
+      throw new Error('"scheduler.jobs" must be an array');
+    }
+    const seenIds = new Set<string>();
+    for (let i = 0; i < s.jobs.length; i++) {
+      const job = s.jobs[i];
+      if (!job.id || typeof job.id !== 'string') {
+        throw new Error(`scheduler.jobs[${i}] must have a string "id"`);
+      }
+      if (seenIds.has(job.id)) {
+        throw new Error(`scheduler.jobs: duplicate job id "${job.id}"`);
+      }
+      seenIds.add(job.id);
+      if (!job.cron || typeof job.cron !== 'string') {
+        throw new Error(`scheduler.jobs[${i}] ("${job.id}") must have a string "cron"`);
+      }
+      if (!job.channel || typeof job.channel !== 'string') {
+        throw new Error(`scheduler.jobs[${i}] ("${job.id}") must have a string "channel"`);
+      }
+      if (!job.prompt || typeof job.prompt !== 'string') {
+        throw new Error(`scheduler.jobs[${i}] ("${job.id}") must have a string "prompt"`);
+      }
+      if (job.description !== undefined && typeof job.description !== 'string') {
+        throw new Error(`scheduler.jobs[${i}] ("${job.id}") "description" must be a string`);
+      }
+      if (job.enabled !== undefined && typeof job.enabled !== 'boolean') {
+        throw new Error(`scheduler.jobs[${i}] ("${job.id}") "enabled" must be a boolean`);
+      }
+    }
+    scheduler = {
+      timezone: s.timezone,
+      jobs: s.jobs,
+    };
+  }
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -144,6 +189,7 @@ function validateAndNormalize(raw: any): AppConfig {
     infiniteSessions: raw.infiniteSessions === true,
     permissions: raw.permissions,
     interAgent: raw.interAgent,
+    scheduler,
   };
 }
 
@@ -202,6 +248,11 @@ function diffConfigs(oldCfg: AppConfig, newCfg: AppConfig): { changes: string[];
   // --- Inter-Agent ---
   if (JSON.stringify(oldCfg.interAgent ?? {}) !== JSON.stringify(newCfg.interAgent ?? {})) {
     changes.push('interAgent config updated');
+  }
+
+  // --- Scheduler ---
+  if (JSON.stringify(oldCfg.scheduler ?? {}) !== JSON.stringify(newCfg.scheduler ?? {})) {
+    changes.push('scheduler config updated');
   }
 
   // --- Channels ---

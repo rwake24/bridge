@@ -672,6 +672,29 @@ export function updateScheduledTaskLastRun(id: string, lastRun: string, nextRun?
   db.prepare('UPDATE scheduled_tasks SET last_run = ?, next_run = ? WHERE id = ?').run(lastRun, nextRun ?? null, id);
 }
 
+/** Update mutable fields of a config-defined scheduled task (cron, prompt, description, timezone, channelId, nextRun). */
+export function updateScheduledTask(id: string, updates: {
+  cronExpr?: string;
+  prompt?: string;
+  description?: string;
+  timezone?: string;
+  channelId?: string;
+  nextRun?: string;
+}): void {
+  const db = getDb();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (updates.cronExpr !== undefined) { fields.push('cron_expr = ?'); values.push(updates.cronExpr); }
+  if (updates.prompt !== undefined) { fields.push('prompt = ?'); values.push(updates.prompt); }
+  if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
+  if (updates.timezone !== undefined) { fields.push('timezone = ?'); values.push(updates.timezone); }
+  if (updates.channelId !== undefined) { fields.push('channel_id = ?'); values.push(updates.channelId); }
+  if (updates.nextRun !== undefined) { fields.push('next_run = ?'); values.push(updates.nextRun); }
+  if (fields.length === 0) return;
+  values.push(id);
+  db.prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
 export function deleteScheduledTask(id: string): void {
   const db = getDb();
   db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);

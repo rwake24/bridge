@@ -8,7 +8,7 @@ import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, setChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules, getTaskHistory } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
-import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
+import { initScheduler, stopAll as stopScheduler, loadConfigJobs, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { checkUserAccess } from './core/access-control.js';
@@ -134,6 +134,37 @@ function getAdapterForChannel(channelId: string): { adapter: ChannelAdapter; str
   const streaming = botStreamers.get(key);
   if (!adapter || !streaming) return null;
   return { adapter, streaming };
+}
+
+/**
+ * Resolve a scheduler config "channel" value to a real channel ID.
+ * Tries (in order): exact channel ID match, channel name match.
+ */
+function resolveSchedulerChannel(channel: string): string | null {
+  const cfg = getConfig();
+  // Exact ID match
+  const byId = cfg.channels.find(c => c.id === channel);
+  if (byId) return byId.id;
+  // Name match (case-insensitive)
+  const lower = channel.toLowerCase();
+  const byName = cfg.channels.find(c => c.name.toLowerCase() === lower);
+  if (byName) return byName.id;
+  return null;
+}
+
+/** Sync config-defined scheduled jobs from config.scheduler into the scheduler. */
+function syncConfigJobs(): void {
+  const cfg = getConfig();
+  if (!cfg.scheduler) return;
+  // Determine a sensible bot name (first configured bot, or 'copilot').
+  const defaultBotName = (() => {
+    for (const plat of Object.values(cfg.platforms)) {
+      if (plat.bots) return Object.keys(plat.bots)[0] ?? 'copilot';
+      if (plat.botToken) return 'copilot';
+    }
+    return 'copilot';
+  })();
+  loadConfigJobs(cfg.scheduler, resolveSchedulerChannel, defaultBotName);
 }
 
 const SLACK_UID_PATTERN = /^U[A-Z0-9]{6,}$/;
@@ -497,6 +528,9 @@ async function main(): Promise<void> {
       }
     },
   });
+
+  // Sync config-defined scheduled jobs (morning-briefing, email-scan, etc.)
+  syncConfigJobs();
 
   // Nudge admin bot sessions that may have been mid-task before restart
   nudgeAdminSessions(sessionManager).catch(err =>
@@ -889,6 +923,8 @@ async function handleInboundMessage(
         } else {
           // Re-apply logLevel after manual reload
           setLogLevel(getConfig().logLevel ?? 'info');
+          // Sync any new or updated config-defined scheduled jobs
+          syncConfigJobs();
           if (result.changes.length === 0 && result.restartNeeded.length === 0) {
             response = '✅ Config reloaded — no changes detected.';
           } else {
@@ -1155,8 +1191,22 @@ async function handleInboundMessage(
             });
             await adapter.sendMessage(msg.channelId, `📋 **Task History** (last ${entries.length})\n${lines.join('\n')}`, { threadRootId: threadRoot });
           }
+        } else if (sub === 'enable') {
+          if (!subArg) {
+            await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule enable <id>`', { threadRootId: threadRoot });
+          } else {
+            const enabled = resumeJob(subArg, msg.channelId);
+            await adapter.sendMessage(msg.channelId, enabled ? `✅ Job \`${subArg}\` enabled.` : `⚠️ Job \`${subArg}\` not found.`, { threadRootId: threadRoot });
+          }
+        } else if (sub === 'disable') {
+          if (!subArg) {
+            await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule disable <id>`', { threadRootId: threadRoot });
+          } else {
+            const disabled = pauseJob(subArg, msg.channelId);
+            await adapter.sendMessage(msg.channelId, disabled ? `⏸️ Job \`${subArg}\` disabled.` : `⚠️ Job \`${subArg}\` not found.`, { threadRootId: threadRoot });
+          }
         } else {
-          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|cancel|pause|resume|history] [id]`', { threadRootId: threadRoot });
+          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|cancel|pause|resume|enable|disable|history] [id]`', { threadRootId: threadRoot });
         }
         break;
       }

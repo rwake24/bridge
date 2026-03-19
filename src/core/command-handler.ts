@@ -523,6 +523,7 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '`/schedule list` — List scheduled tasks (aliases: `/schedules`, `/tasks`)',
           '`/schedule cancel <id>` — Cancel a scheduled task',
           '`/schedule pause|resume <id>` — Pause or resume a task',
+          '`/schedule enable|disable <id>` — Enable or disable a config-defined job',
           '`/schedule history [n]` — Show recent task execution history',
           '',
           '**Tools & Info**',

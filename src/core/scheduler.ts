@@ -5,11 +5,12 @@ import { DateTime } from 'luxon';
 import { createLogger } from '../logger.js';
 import {
   getEnabledScheduledTasks, insertScheduledTask, deleteScheduledTask,
-  updateScheduledTaskEnabled, updateScheduledTaskLastRun,
+  updateScheduledTaskEnabled, updateScheduledTaskLastRun, updateScheduledTask,
   getScheduledTasksForChannel, getScheduledTask,
   insertTaskHistory,
   type ScheduledTask,
 } from '../state/store.js';
+import type { SchedulerConfig } from '../types.js';
 
 const log = createLogger('scheduler');
 
@@ -212,6 +213,122 @@ export function stopAll(): void {
     log.debug(`Stopped job ${id}`);
   }
   activeJobs.clear();
+}
+
+/**
+ * Sync config-defined jobs to the scheduler.
+ *
+ * Called after initScheduler on startup and again after a config reload.
+ * - New config jobs (not in DB) are inserted and started.
+ * - Existing config jobs get their cron/prompt/description/timezone updated in DB;
+ *   the running timer is restarted only if the cron expression changed.
+ * - The enabled/disabled state in DB is preserved for existing jobs so users can
+ *   toggle jobs at runtime via `/schedule enable|disable <id>`.
+ *
+ * @param schedulerConfig  The "scheduler" block from config.json.
+ * @param resolveChannelId Maps a channel name or ID string to an actual channel ID.
+ *                         Return null to skip a job whose channel cannot be resolved.
+ * @param defaultBotName   Bot name recorded on newly created tasks.
+ */
+export function loadConfigJobs(
+  schedulerConfig: SchedulerConfig,
+  resolveChannelId: (channel: string) => string | null,
+  defaultBotName: string,
+): void {
+  const timezone = schedulerConfig.timezone ?? 'UTC';
+
+  for (const configJob of schedulerConfig.jobs) {
+    const channelId = resolveChannelId(configJob.channel);
+    if (!channelId) {
+      log.warn(`Config job "${configJob.id}": channel "${configJob.channel}" not found — skipping`);
+      continue;
+    }
+
+    const jobTimezone = timezone;
+    const description = configJob.description ?? configJob.id;
+    const existing = getScheduledTask(configJob.id);
+
+    if (!existing) {
+      // First time this job appears — insert with config's initial enabled state.
+      const enabled = configJob.enabled !== false;
+      let nextRun: string | undefined;
+      try {
+        const probe = CronJob.from({ cronTime: configJob.cron, onTick: () => {}, timeZone: jobTimezone });
+        nextRun = probe.nextDate().toISO() ?? undefined;
+        probe.stop();
+      } catch (err: any) {
+        log.error(`Config job "${configJob.id}": invalid cron "${configJob.cron}" — ${err?.message}`);
+        continue;
+      }
+
+      const task: ScheduledTask = {
+        id: configJob.id,
+        channelId,
+        botName: defaultBotName,
+        prompt: configJob.prompt,
+        cronExpr: configJob.cron,
+        timezone: jobTimezone,
+        description,
+        enabled,
+        nextRun,
+        createdAt: new Date().toISOString(),
+      };
+      insertScheduledTask(task);
+      if (enabled) {
+        try {
+          startJob(task);
+        } catch (err: any) {
+          log.error(`Config job "${configJob.id}": failed to start — ${err?.message}`);
+        }
+      }
+      log.info(`Config job "${configJob.id}" registered (enabled=${enabled})`);
+    } else {
+      // Job already in DB — update definition but preserve enabled state.
+      const cronChanged = existing.cronExpr !== configJob.cron;
+      const needsUpdate =
+        cronChanged ||
+        existing.prompt !== configJob.prompt ||
+        existing.description !== description ||
+        existing.timezone !== jobTimezone ||
+        existing.channelId !== channelId;
+
+      if (needsUpdate) {
+        let nextRun: string | undefined = existing.nextRun;
+        if (cronChanged) {
+          try {
+            const probe = CronJob.from({ cronTime: configJob.cron, onTick: () => {}, timeZone: jobTimezone });
+            nextRun = probe.nextDate().toISO() ?? undefined;
+            probe.stop();
+          } catch (err: any) {
+            log.error(`Config job "${configJob.id}": invalid updated cron "${configJob.cron}" — ${err?.message}`);
+            continue;
+          }
+        }
+        updateScheduledTask(configJob.id, {
+          cronExpr: configJob.cron,
+          prompt: configJob.prompt,
+          description,
+          timezone: jobTimezone,
+          channelId,
+          nextRun,
+        });
+
+        // Restart the live timer if cron changed and job is currently running.
+        if (cronChanged && activeJobs.has(configJob.id)) {
+          activeJobs.get(configJob.id)!.stop();
+          activeJobs.delete(configJob.id);
+          if (existing.enabled) {
+            try {
+              startJob({ ...existing, cronExpr: configJob.cron, timezone: jobTimezone, channelId, nextRun });
+            } catch (err: any) {
+              log.error(`Config job "${configJob.id}": failed to restart with new cron — ${err?.message}`);
+            }
+          }
+        }
+        log.info(`Config job "${configJob.id}" updated`);
+      }
+    }
+  }
 }
 
 /** Start a CronJob for a task. */

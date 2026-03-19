@@ -811,3 +811,177 @@ describe('logLevel config validation', () => {
     expect2(config.logLevel).toBeUndefined();
   });
 });
+
+// --- scheduler config validation tests ---
+
+describe('scheduler config validation', () => {
+  let tmpDir: string;
+  let configFile: string;
+
+  beforeEach(() => {
+    _resetConfigForTest();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scheduler-test-'));
+    configFile = path.join(tmpDir, 'config.json');
+  });
+
+  afterEach(() => {
+    _resetConfigForTest();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeJobConfig(overrides: Record<string, any> = {}): Record<string, any> {
+    return {
+      id: 'morning-briefing',
+      cron: '30 7 * * 1-5',
+      channel: 'ch1',
+      prompt: 'Give me a morning briefing.',
+      ...overrides,
+    };
+  }
+
+  it('accepts a valid scheduler config', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        timezone: 'America/Chicago',
+        jobs: [makeJobConfig()],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler).toBeDefined();
+    expect2(config.scheduler!.timezone).toBe('America/Chicago');
+    expect2(config.scheduler!.jobs).toHaveLength(1);
+    expect2(config.scheduler!.jobs[0].id).toBe('morning-briefing');
+    expect2(config.scheduler!.jobs[0].cron).toBe('30 7 * * 1-5');
+  });
+
+  it('accepts scheduler without timezone', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig()] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler!.timezone).toBeUndefined();
+  });
+
+  it('accepts multiple jobs', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [
+          makeJobConfig({ id: 'job-a' }),
+          makeJobConfig({ id: 'job-b', cron: '0 8 * * 1-5' }),
+        ],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler!.jobs).toHaveLength(2);
+  });
+
+  it('accepts optional enabled field', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ enabled: false })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler!.jobs[0].enabled).toBe(false);
+  });
+
+  it('accepts optional description field', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ description: 'My job' })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler!.jobs[0].description).toBe('My job');
+  });
+
+  it('allows omitting scheduler entirely', () => {
+    const cfg = makeConfig();
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    const config = loadConfig(configFile);
+    expect2(config.scheduler).toBeUndefined();
+  });
+
+  it('rejects scheduler that is not an object', () => {
+    const cfg = makeConfig({ scheduler: 'not-an-object' });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/"scheduler" must be an object/);
+  });
+
+  it('rejects scheduler.jobs that is not an array', () => {
+    const cfg = makeConfig({ scheduler: { jobs: 'not-an-array' } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/"scheduler\.jobs" must be an array/);
+  });
+
+  it('rejects job missing id', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ id: undefined })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/must have a string "id"/);
+  });
+
+  it('rejects job missing cron', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ cron: undefined })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/must have a string "cron"/);
+  });
+
+  it('rejects job missing channel', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ channel: undefined })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/must have a string "channel"/);
+  });
+
+  it('rejects job missing prompt', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ prompt: undefined })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/must have a string "prompt"/);
+  });
+
+  it('rejects duplicate job ids', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [makeJobConfig({ id: 'same-id' }), makeJobConfig({ id: 'same-id' })],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/duplicate job id/);
+  });
+
+  it('rejects non-boolean enabled', () => {
+    const cfg = makeConfig({
+      scheduler: { jobs: [makeJobConfig({ enabled: 'yes' })] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/"enabled" must be a boolean/);
+  });
+
+  it('rejects non-string timezone', () => {
+    const cfg = makeConfig({
+      scheduler: { timezone: 123, jobs: [makeJobConfig()] },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect2(() => loadConfig(configFile)).toThrow(/"scheduler\.timezone" must be a string/);
+  });
+
+  it('detects scheduler changes on config reload', () => {
+    const cfg = makeConfig({ scheduler: { jobs: [makeJobConfig()] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+
+    const updated = makeConfig({ scheduler: { timezone: 'UTC', jobs: [makeJobConfig()] } });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+    const result = reloadConfig();
+    expect2(result.success).toBe(true);
+    expect2(result.changes).toContain('scheduler config updated');
+  });
+});
