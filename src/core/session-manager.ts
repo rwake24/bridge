@@ -27,11 +27,12 @@ import { loadHooks, getHooksInfo, type SessionHooks, type HookInfo } from './hoo
 import type {
   ChannelAdapter, InboundMessage, PendingPermission, PendingUserInput,
 } from '../types.js';
+import { buildObsidianTools, OBSIDIAN_TOOL_NAMES } from '../skills/obsidian/tools.js';
 
 const log = createLogger('session');
 
 /** Custom tools auto-approved without interactive prompt (they enforce workspace boundaries internally). */
-export const BRIDGE_CUSTOM_TOOLS = ['send_file', 'show_file_in_chat', 'ask_agent', 'schedule'];
+export const BRIDGE_CUSTOM_TOOLS = ['send_file', 'show_file_in_chat', 'ask_agent', 'schedule', ...OBSIDIAN_TOOL_NAMES];
 
 type SessionEventHandler = (sessionId: string, channelId: string, event: any) => void;
 
@@ -1985,6 +1986,12 @@ export class SessionManager {
 
     // Scheduler tool: create/list/cancel/pause/resume scheduled tasks
     tools.push(this.buildScheduleToolDef(channelId));
+
+    // Obsidian vault tools (only when vault is configured)
+    const appCfg = getConfig();
+    if (appCfg.obsidian) {
+      tools.push(...buildObsidianTools(appCfg.obsidian));
+    }
 
     if (tools.length > 0) {
       log.info(`Built ${tools.length} custom tool(s) for channel ${channelId.slice(0, 8)}...`);

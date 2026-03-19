@@ -46,6 +46,16 @@ export interface PermissionsConfig {
   allowUrls?: string[];   // pre-approved URL domains
 }
 
+// Obsidian vault configuration
+export interface ObsidianConfig {
+  vaultPath: string;              // absolute path to the Obsidian vault root
+  accountsFolder?: string;        // folder for account notes (default: "Accounts")
+  meetingsFolder?: string;        // folder for meeting notes (default: "Meetings")
+  motionsFolder?: string;         // folder for sales motion playbooks (default: "Motions")
+  dailyFolder?: string;           // folder for daily journal notes (default: "Daily")
+  knowledgeFolder?: string;       // folder for general reference notes (default: "Knowledge")
+}
+
 // Full app config
 export interface AppConfig {
   platforms: Record<string, PlatformConfig>;
@@ -64,6 +74,7 @@ export interface AppConfig {
   infiniteSessions?: boolean;
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
+  obsidian?: ObsidianConfig;
 }
 
 // Inter-agent communication config
