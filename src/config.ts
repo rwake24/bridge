@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig, ObsidianConfig } from './types.js';
+import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig, ObsidianConfig, SchedulerConfig } from './types.js';
 import { getDynamicChannel } from './state/store.js';
 import { createLogger } from './logger.js';
 
@@ -150,6 +150,48 @@ function validateAndNormalize(raw: any): AppConfig {
     };
   }
 
+  // Validate scheduler config (optional)
+  let scheduler: SchedulerConfig | undefined;
+  if (raw.scheduler !== undefined) {
+    if (typeof raw.scheduler !== 'object' || Array.isArray(raw.scheduler)) {
+      throw new Error('scheduler must be an object');
+    }
+    if (raw.scheduler.timezone !== undefined && typeof raw.scheduler.timezone !== 'string') {
+      throw new Error('scheduler.timezone must be a string');
+    }
+    if (!Array.isArray(raw.scheduler.jobs)) {
+      throw new Error('scheduler.jobs must be an array');
+    }
+    const seenIds = new Set<string>();
+    for (const job of raw.scheduler.jobs) {
+      if (!job.id || typeof job.id !== 'string') {
+        throw new Error('Each scheduler job must have an "id" string');
+      }
+      if (seenIds.has(job.id)) {
+        throw new Error(`Duplicate scheduler job id: "${job.id}"`);
+      }
+      seenIds.add(job.id);
+      if (!job.cron || typeof job.cron !== 'string') {
+        throw new Error(`Scheduler job "${job.id}" must have a "cron" expression`);
+      }
+      if (!job.channel || typeof job.channel !== 'string') {
+        throw new Error(`Scheduler job "${job.id}" must have a "channel"`);
+      }
+      if (job.enabled !== undefined && typeof job.enabled !== 'boolean') {
+        throw new Error(`Scheduler job "${job.id}" enabled must be a boolean`);
+      }
+    }
+    scheduler = {
+      timezone: raw.scheduler.timezone,
+      jobs: raw.scheduler.jobs.map((j: any) => ({
+        id: j.id as string,
+        cron: j.cron as string,
+        channel: j.channel as string,
+        enabled: j.enabled !== false,  // default true
+      })),
+    };
+  }
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -170,6 +212,7 @@ function validateAndNormalize(raw: any): AppConfig {
     permissions: raw.permissions,
     interAgent: raw.interAgent,
     obsidian,
+    scheduler,
   };
 }
 
@@ -228,6 +271,11 @@ function diffConfigs(oldCfg: AppConfig, newCfg: AppConfig): { changes: string[];
   // --- Inter-Agent ---
   if (JSON.stringify(oldCfg.interAgent ?? {}) !== JSON.stringify(newCfg.interAgent ?? {})) {
     changes.push('interAgent config updated');
+  }
+
+  // --- Scheduler ---
+  if (JSON.stringify(oldCfg.scheduler ?? {}) !== JSON.stringify(newCfg.scheduler ?? {})) {
+    changes.push('scheduler config updated (restart to apply job changes)');
   }
 
   // --- Channels ---
@@ -364,6 +412,11 @@ export function getConfig(): AppConfig {
 export function getInterAgentConfig(): InterAgentConfig {
   const config = getConfig();
   return config.interAgent ?? { enabled: false };
+}
+
+export function getSchedulerConfig(): SchedulerConfig | undefined {
+  const config = getConfig();
+  return config.scheduler;
 }
 
 export function getChannelConfig(channelId: string): ChannelConfig & { permissionMode: string } {

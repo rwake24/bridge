@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { DateTime } from 'luxon';
 import { createLogger } from '../logger.js';
 import {
-  getEnabledScheduledTasks, insertScheduledTask, deleteScheduledTask,
+  getEnabledScheduledTasks, insertScheduledTask, upsertScheduledTask, deleteScheduledTask,
   updateScheduledTaskEnabled, updateScheduledTaskLastRun,
   getScheduledTasksForChannel, getScheduledTask,
   insertTaskHistory,
@@ -22,6 +22,63 @@ interface SchedulerDeps {
 
 // Active CronJob instances keyed by task ID
 const activeJobs = new Map<string, CronJob>();
+
+/**
+ * Predefined prompts for built-in scheduled job types.
+ * These are the "handlers" referenced in the scheduler config.
+ */
+export const JOB_PROMPTS: Readonly<Record<string, string>> = {
+  'morning-briefing':
+    'Please perform the morning briefing:\n' +
+    '1. List today\'s calendar meetings with times\n' +
+    '2. Summarize overnight emails (received since yesterday 5 PM) — filter to those sent directly TO me, not just CC\n' +
+    '3. List any open tasks or unresolved action items from yesterday\n' +
+    '4. For each meeting today, check whether an account match exists in accounts.json and provide a brief context note\n' +
+    '\nIf any meetings start within the next 90 minutes, also perform meeting prep: match the meeting to an account, ' +
+    'read the account note from Obsidian if available, pull recent emails and Teams messages about the account via WorkIQ, ' +
+    'and include a prep brief in the summary.\n' +
+    '\nFormat the output with clear sections: 📅 Calendar, 📧 Overnight Emails, ✅ Open Items, and 🤝 Meeting Prep.',
+
+  'email-scan':
+    'Please perform an email scan:\n' +
+    '1. Using WorkIQ, retrieve emails received in the last 2 hours\n' +
+    '2. Filter to emails sent directly TO me (not just CC or BCC)\n' +
+    '3. For each email, provide: sender, subject, and a one-line summary\n' +
+    '4. Flag any that appear urgent or require immediate action\n' +
+    '\nAlso check the calendar for any meetings starting in the next 90 minutes. ' +
+    'If an upcoming meeting matches an account in accounts.json, include a quick meeting prep note.\n' +
+    '\nFormat the output with sections: 🚨 Urgent / Action Required, 📬 New Emails, and 🤝 Upcoming Meeting Prep (if applicable).',
+
+  'meeting-prep':
+    'Please perform meeting preparation for upcoming meetings:\n' +
+    '1. Check the calendar for meetings starting in the next 90 minutes\n' +
+    '2. For each upcoming meeting, match the title and attendees to an account in accounts.json\n' +
+    '3. If a match is found:\n' +
+    '   a. Read the account note from Obsidian\n' +
+    '   b. Pull recent emails about the account via WorkIQ\n' +
+    '   c. Pull recent Teams messages about the account via WorkIQ\n' +
+    '   d. Read pipeline data from accounts.json\n' +
+    '   e. Compile a meeting prep brief\n' +
+    '4. If no account match is found, note the meeting with any available context\n' +
+    '\nIf no meetings are starting in the next 90 minutes, reply: "No meetings in the next 90 minutes."\n' +
+    'Post the prep brief to #account-prep.',
+
+  'evening-recap':
+    'Please perform the evening recap:\n' +
+    '1. Summarize what was accomplished today based on calendar, emails, and tasks\n' +
+    '2. List any unresolved items, open action items, or pending follow-ups\n' +
+    '3. Preview tomorrow\'s calendar — list meetings and flag any that need prep\n' +
+    '\nFormat the output with sections: ✅ Accomplished Today, 📋 Open Items, and 📅 Tomorrow\'s Preview.',
+
+  'weekly-pipeline':
+    'Please perform the weekly pipeline review:\n' +
+    '1. Read all accounts from accounts.json\n' +
+    '2. For each account, summarize: name, motion status, priority, and monthly potential\n' +
+    '3. Identify accounts with renewals due in the next 90 days\n' +
+    '4. Flag any accounts with risk indicators: stalled motion, missed follow-up, or urgent priority\n' +
+    '5. Highlight any accounts that need immediate attention this week\n' +
+    '\nFormat the output with sections: 📊 Active Pipeline, 🔄 Upcoming Renewals, and 🚨 Risk Flags.',
+};
 
 /** Format a timestamp (ISO or SQLite datetime) in the given IANA timezone for display. */
 export function formatInTimezone(timestamp: string, timezone: string): string {
@@ -88,6 +145,65 @@ export function initScheduler(schedulerDeps: SchedulerDeps): void {
   }
 
   log.info(`Scheduler initialized: ${started} job(s) started, ${missed} missed`);
+}
+
+/**
+ * Load (or reload) config-defined scheduled jobs.
+ * - Creates the job in the DB if it doesn't exist yet (using the `enabled` flag from config).
+ * - Updates the cron/prompt/timezone if the config changed, preserving the user's enabled state.
+ * - If a job ID has no built-in prompt handler, it is skipped with a warning.
+ *
+ * Call this after `initScheduler()` once config and channels are resolved.
+ */
+export function loadConfigJobs(
+  jobs: ReadonlyArray<{
+    id: string;
+    cron: string;
+    channelId: string;
+    botName: string;
+    enabled: boolean;
+    timezone: string;
+  }>,
+): void {
+  for (const jobDef of jobs) {
+    const prompt = JOB_PROMPTS[jobDef.id];
+    if (!prompt) {
+      log.warn(`Scheduler: no built-in handler for job id "${jobDef.id}" — skipping. Known ids: ${Object.keys(JOB_PROMPTS).join(', ')}`);
+      continue;
+    }
+
+    try {
+      // Validate the cron expression and compute the next run time
+      const probe = CronJob.from({ cronTime: jobDef.cron, onTick: () => {}, timeZone: jobDef.timezone, start: false });
+      const nextRun = probe.nextDate().toISO() ?? undefined;
+
+      const result = upsertScheduledTask({
+        id: jobDef.id,
+        channelId: jobDef.channelId,
+        botName: jobDef.botName,
+        prompt,
+        cronExpr: jobDef.cron,
+        timezone: jobDef.timezone,
+        description: jobDef.id,
+        enabled: jobDef.enabled,
+        nextRun,
+      });
+
+      // Re-read from DB to get the actual enabled state (upsert preserves it on update)
+      const stored = getScheduledTask(jobDef.id);
+      if (stored?.enabled) {
+        startJob({ ...stored, cronExpr: jobDef.cron, prompt, timezone: jobDef.timezone });
+      } else if (activeJobs.has(jobDef.id)) {
+        // Job was disabled by user — stop the active timer
+        activeJobs.get(jobDef.id)!.stop();
+        activeJobs.delete(jobDef.id);
+      }
+
+      log.info(`Config job "${jobDef.id}" ${result} (enabled=${stored?.enabled ?? false})`);
+    } catch (err: any) {
+      log.error(`Failed to load config job "${jobDef.id}": ${err?.message}`);
+    }
+  }
 }
 
 /** Create and persist a new scheduled task. */
@@ -289,3 +405,4 @@ async function executeJob(taskId: string, isOneOff: boolean): Promise<void> {
     log.info(`One-off job ${taskId} completed and removed`);
   }
 }
+

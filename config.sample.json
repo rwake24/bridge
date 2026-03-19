@@ -97,5 +97,41 @@
     "motionsFolder": "Motions",
     "dailyFolder": "Daily",
     "knowledgeFolder": "Knowledge"
+  },
+  "_comment_scheduler": "Optional: Recurring scheduled jobs. Built-in job ids: morning-briefing, email-scan, meeting-prep, evening-recap, weekly-pipeline",
+  "scheduler": {
+    "timezone": "America/Chicago",
+    "jobs": [
+      {
+        "id": "morning-briefing",
+        "cron": "30 7 * * 1-5",
+        "channel": "morning-briefing",
+        "enabled": true
+      },
+      {
+        "id": "email-scan",
+        "cron": "0 8,10,12,14,16,18 * * 1-5",
+        "channel": "email-updates",
+        "enabled": false
+      },
+      {
+        "id": "meeting-prep",
+        "cron": "0,30 7-17 * * 1-5",
+        "channel": "account-prep",
+        "enabled": false
+      },
+      {
+        "id": "evening-recap",
+        "cron": "0 17 * * 1-5",
+        "channel": "morning-briefing",
+        "enabled": false
+      },
+      {
+        "id": "weekly-pipeline",
+        "cron": "0 8 * * 1",
+        "channel": "pipeline",
+        "enabled": false
+      }
+    ]
   }
 }

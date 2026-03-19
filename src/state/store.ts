@@ -641,6 +641,35 @@ export function insertScheduledTask(task: Omit<ScheduledTask, 'createdAt' | 'las
   );
 }
 
+/**
+ * Insert a config-defined job if it doesn't exist; otherwise update its definition
+ * fields (cron, prompt, timezone, nextRun) while preserving the user's enabled state.
+ * Returns 'created' or 'updated'.
+ */
+export function upsertScheduledTask(
+  task: Omit<ScheduledTask, 'createdAt' | 'lastRun' | 'nextRun'> & { nextRun?: string },
+): 'created' | 'updated' {
+  const db = getDb();
+  const existing = db.prepare('SELECT id FROM scheduled_tasks WHERE id = ?').get(task.id) as any;
+  if (existing) {
+    // Preserve user's enabled state; update definition fields only
+    db.prepare(`
+      UPDATE scheduled_tasks
+      SET channel_id = ?, bot_name = ?, prompt = ?, cron_expr = ?, run_at = ?,
+          timezone = ?, created_by = ?, description = ?, next_run = ?
+      WHERE id = ?
+    `).run(
+      task.channelId, task.botName, task.prompt,
+      task.cronExpr ?? null, task.runAt ?? null, task.timezone,
+      task.createdBy ?? null, task.description ?? null,
+      task.nextRun ?? null, task.id,
+    );
+    return 'updated';
+  }
+  insertScheduledTask(task);
+  return 'created';
+}
+
 export function getScheduledTask(id: string): ScheduledTask | null {
   const db = getDb();
   const row = db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as any;
