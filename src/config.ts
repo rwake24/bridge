@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig } from './types.js';
+import type { AppConfig, ChannelConfig, BotConfig, PermissionsConfig, InterAgentConfig, AccessConfig, ObsidianConfig } from './types.js';
 import { getDynamicChannel } from './state/store.js';
 import { createLogger } from './logger.js';
 
@@ -125,6 +125,31 @@ function validateAndNormalize(raw: any): AppConfig {
     }
   }
 
+  // Validate obsidian config (optional)
+  let obsidian: ObsidianConfig | undefined;
+  if (raw.obsidian !== undefined) {
+    if (typeof raw.obsidian !== 'object' || Array.isArray(raw.obsidian)) {
+      throw new Error('obsidian must be an object');
+    }
+    if (!raw.obsidian.vaultPath || typeof raw.obsidian.vaultPath !== 'string') {
+      throw new Error('obsidian.vaultPath must be a non-empty string');
+    }
+    const stringFields = ['accountsFolder', 'meetingsFolder', 'motionsFolder', 'dailyFolder', 'knowledgeFolder'] as const;
+    for (const field of stringFields) {
+      if (raw.obsidian[field] !== undefined && typeof raw.obsidian[field] !== 'string') {
+        throw new Error(`obsidian.${field} must be a string`);
+      }
+    }
+    obsidian = {
+      vaultPath: raw.obsidian.vaultPath,
+      accountsFolder: raw.obsidian.accountsFolder,
+      meetingsFolder: raw.obsidian.meetingsFolder,
+      motionsFolder: raw.obsidian.motionsFolder,
+      dailyFolder: raw.obsidian.dailyFolder,
+      knowledgeFolder: raw.obsidian.knowledgeFolder,
+    };
+  }
+
   // Apply defaults
   const defaults = {
     model: 'claude-sonnet-4.6',
@@ -144,6 +169,7 @@ function validateAndNormalize(raw: any): AppConfig {
     infiniteSessions: raw.infiniteSessions === true,
     permissions: raw.permissions,
     interAgent: raw.interAgent,
+    obsidian,
   };
 }
 

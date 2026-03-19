@@ -88,5 +88,14 @@
       "copilot": { "canCall": ["bob"], "canBeCalledBy": ["bob"] },
       "bob": { "canCall": ["copilot"], "canBeCalledBy": ["copilot"] }
     }
+  },
+  "_comment_obsidian": "Optional: Obsidian vault integration — read/write/search notes via obsidian_* tools",
+  "obsidian": {
+    "vaultPath": "/path/to/your/obsidian/vault",
+    "accountsFolder": "Accounts",
+    "meetingsFolder": "Meetings",
+    "motionsFolder": "Motions",
+    "dailyFolder": "Daily",
+    "knowledgeFolder": "Knowledge"
   }
 }
