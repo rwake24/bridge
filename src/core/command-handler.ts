@@ -1,5 +1,15 @@
 import { setChannelPrefs, getChannelPrefs, getGlobalSetting, setGlobalSetting } from '../state/store.js';
 import { discoverAgentDefinitions, discoverAgentNames } from './inter-agent.js';
+import {
+  findAccount,
+  filterByMotion,
+  filterByPriority,
+  getUpcomingRenewals,
+  formatPipelineView,
+  formatAccountDetail,
+  formatRenewalAlerts,
+  hasAccounts,
+} from './accounts.js';
 
 const VALID_REASONING_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh']);
 const TRUTHY = new Set(['on', 'true', 'yes', '1', 'enable', 'enabled']);
@@ -474,6 +484,70 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       return { handled: true, action: 'skills' };
     }
 
+    case 'pipeline':
+    case 'accounts': {
+      const args = parsed.args?.trim().toLowerCase();
+
+      // /accounts renewals [days]
+      if (args?.startsWith('renewals') || args?.startsWith('renewal')) {
+        const daysPart = args.replace(/^renewals?\s*/i, '').trim();
+        const days = daysPart ? parseInt(daysPart, 10) : 90;
+        const d = isNaN(days) || days <= 0 ? 90 : days;
+        return { handled: true, response: formatRenewalAlerts(d) };
+      }
+
+      // /accounts motion <motion>
+      const motionMatch = (parsed.args ?? '').trim().match(/^motion\s+(.+)$/i);
+      if (motionMatch) {
+        const motion = motionMatch[1].trim();
+        const matches = filterByMotion(motion);
+        if (!matches.length) {
+          return { handled: true, response: `📊 No accounts found with motion matching "${motion}".` };
+        }
+        const lines = [`📊 **Accounts — ${motion}** (${matches.length})`, ''];
+        for (const a of matches) lines.push(`  ${a.name} — ${a.motions.join(', ')}${a.monthlyPotential !== undefined ? ` — $${(a.monthlyPotential / 1000).toFixed(1)}K/mo` : ''}`);
+        return { handled: true, response: lines.join('\n') };
+      }
+
+      // /accounts priority <priority> (or /accounts urgent|high|whale)
+      const PRIORITIES = new Set(['urgent', 'whale', 'high', 'normal', 'medium', 'low']);
+      const priorityArg = (parsed.args ?? '').trim().toLowerCase().replace(/^priority\s+/, '');
+      if (priorityArg && PRIORITIES.has(priorityArg)) {
+        const matches = filterByPriority(priorityArg);
+        if (!matches.length) {
+          return { handled: true, response: `📊 No accounts with priority "${priorityArg}".` };
+        }
+        const lines = [`📊 **${priorityArg.toUpperCase()} Accounts** (${matches.length})`, ''];
+        for (const a of matches) lines.push(`  ${a.name} — ${a.motions.join(', ')}${a.monthlyPotential !== undefined ? ` — $${(a.monthlyPotential / 1000).toFixed(1)}K/mo` : ''}`);
+        return { handled: true, response: lines.join('\n') };
+      }
+
+      // /accounts <name> — account detail lookup
+      if (parsed.args?.trim() && parsed.command === 'accounts') {
+        const account = findAccount(parsed.args.trim());
+        if (account) return { handled: true, response: formatAccountDetail(account) };
+        return { handled: true, response: `📊 Account not found: "${parsed.args.trim()}". Use \`/pipeline\` to see all accounts.` };
+      }
+
+      // Default: pipeline overview
+      return { handled: true, response: formatPipelineView() };
+    }
+
+    case 'account': {
+      const query = parsed.args?.trim();
+      if (!query) {
+        return { handled: true, response: formatPipelineView() };
+      }
+      const account = findAccount(query);
+      if (!account) {
+        if (!hasAccounts()) {
+          return { handled: true, response: '📊 No account data loaded. Add accounts.json to your config directory.' };
+        }
+        return { handled: true, response: `📊 Account not found: "${query}". Use \`/pipeline\` to see all accounts.` };
+      }
+      return { handled: true, response: formatAccountDetail(account) };
+    }
+
     case 'help': {
       const showAll = parsed.args?.trim().toLowerCase() === 'all';
       const common = [
@@ -489,6 +563,7 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
         '`/schedule list` — List scheduled tasks',
         '`/skills` — Show available skills and MCP tools',
         '`/plan` — Toggle plan mode',
+        '`/pipeline` — Account pipeline dashboard',
         '`/help all` — Show all commands',
       ];
       if (!showAll) return { handled: true, response: common.join('\n') };
@@ -535,6 +610,14 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '`/plan show` — Show current plan',
           '`/plan clear` — Delete the plan',
           '`/streamer-mode [on|off]` — Toggle streamer mode',
+          '',
+          '**Accounts & Pipeline**',
+          '`/pipeline` — Account pipeline dashboard (alias: `/accounts`)',
+          '`/account <name>` — Account detail (fuzzy match)',
+          '`/accounts renewals [days]` — Upcoming renewals (default: 90 days)',
+          '`/accounts motion <motion>` — Filter accounts by motion',
+          '`/accounts <priority>` — Filter by priority (urgent/whale/high/normal/low)',
+          '',
           '`/help` — Show common commands',
         ].join('\n'),
       };
