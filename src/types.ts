@@ -125,6 +125,8 @@ export interface CreateChannelOpts {
   displayName: string;
   private: boolean;
   teamId: string;
+  purpose?: string;
+  header?: string;
 }
 
 export interface TeamInfo {
