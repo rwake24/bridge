@@ -1569,6 +1569,17 @@ async function handleSessionEvent(
     log.error(`SDK error event: ${JSON.stringify(event).slice(0, 1000)}`);
   }
 
+  // Log compaction events
+  if (event.type === 'session.compaction_start') {
+    log.info(`[${channelId}] Context compaction started`);
+  } else if (event.type === 'session.compaction_complete') {
+    const d = event.data ?? {};
+    log.info(`[${channelId}] Context compaction complete: success=${d.success}, tokens removed=${d.tokensRemoved ?? '?'}, messages removed=${d.messagesRemoved ?? '?'}, checkpoint=#${d.checkpointNumber ?? '?'}`);
+    if (d.preCompactionTokens || d.postCompactionTokens) {
+      log.debug(`[${channelId}] Compaction detail: ${d.preCompactionTokens} → ${d.postCompactionTokens} tokens`);
+    }
+  }
+
   // Verbose SDK event logging
   if (event.type === 'assistant.message_delta' || event.type === 'assistant.streaming_delta') {
     log.debug(`SDK ${event.type}: ${JSON.stringify(event.data).slice(0, 200)}`);

@@ -91,6 +91,7 @@ export class CopilotBridge {
       customAgents: opts.customAgents,
       tools: opts.tools,
       hooks: opts.hooks,
+      infiniteSessions: { enabled: true },
     });
     this.sessions.set(session.sessionId, session);
     return session;
@@ -132,6 +133,7 @@ export class CopilotBridge {
       disabledSkills: opts?.disabledSkills,
       tools: opts?.tools,
       hooks: opts?.hooks,
+      infiniteSessions: { enabled: true },
     });
     this.sessions.set(session.sessionId, session);
     return session;
