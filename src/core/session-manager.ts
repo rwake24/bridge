@@ -337,7 +337,9 @@ export class SessionManager {
   // Pending user input requests (queue per channel to avoid overwrites)
   private pendingUserInput = new Map<string, PendingUserInput[]>();
   // Cached context usage from session.usage_info events
-  private contextUsage = new Map<string, { currentTokens: number; tokenLimit: number; contextWindowTokens?: number }>();
+  private contextUsage = new Map<string, { currentTokens: number; tokenLimit: number }>();
+  // Cached max_context_window_tokens from listModels() (separate from usage_info to avoid ordering issues)
+  private contextWindowTokens = new Map<string, number>();
   private lastMessageUserIds = new Map<string, string>(); // channelId → userId of last message sender
   // MCP server names that were passed to the session at creation/resume time
   private sessionMcpServers = new Map<string, Set<string>>(); // channelId → server names
@@ -589,6 +591,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.contextWindowTokens.delete(channelId);
       this.lastMessageUserIds.delete(channelId);
       this.sessionMcpServers.delete(channelId);
       this.sessionSkillDirs.delete(channelId);
@@ -616,6 +619,7 @@ export class SessionManager {
 
     // Re-attach the same session (re-reads workspace config, AGENTS.md, MCP, etc.)
     this.contextUsage.delete(channelId);
+      this.contextWindowTokens.delete(channelId);
     this.lastMessageUserIds.delete(channelId);
     this.sessionMcpServers.delete(channelId);
     this.sessionSkillDirs.delete(channelId);
@@ -629,6 +633,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.contextWindowTokens.delete(channelId);
       this.lastMessageUserIds.delete(channelId);
       this.sessionMcpServers.delete(channelId);
       this.sessionSkillDirs.delete(channelId);
@@ -653,6 +658,7 @@ export class SessionManager {
       this.channelSessions.delete(channelId);
       this.sessionChannels.delete(existingId);
       this.contextUsage.delete(channelId);
+      this.contextWindowTokens.delete(channelId);
       this.lastMessageUserIds.delete(channelId);
       this.sessionMcpServers.delete(channelId);
       this.sessionSkillDirs.delete(channelId);
@@ -667,6 +673,7 @@ export class SessionManager {
       this.channelSessions.delete(otherChannel);
       this.sessionChannels.delete(targetSessionId);
       this.contextUsage.delete(otherChannel);
+      this.contextWindowTokens.delete(otherChannel);
       this.lastMessageUserIds.delete(otherChannel);
       this.sessionMcpServers.delete(otherChannel);
       this.sessionSkillDirs.delete(otherChannel);
@@ -821,10 +828,7 @@ export class SessionManager {
     setChannelPrefs(channelId, { model });
 
     // Clear stale context window tokens so /context falls back to tokenLimit during transition
-    const existing = this.contextUsage.get(channelId);
-    if (existing) {
-      existing.contextWindowTokens = undefined;
-    }
+    this.contextWindowTokens.delete(channelId);
 
     // Update cached context window tokens for the new model (best-effort)
     this.bridge.listModels().then(models => {
@@ -1050,7 +1054,10 @@ export class SessionManager {
 
   /** Get cached context window usage for a channel. */
   getContextUsage(channelId: string): { currentTokens: number; tokenLimit: number; contextWindowTokens?: number } | null {
-    return this.contextUsage.get(channelId) ?? null;
+    const usage = this.contextUsage.get(channelId);
+    if (!usage) return null;
+    const ctxWindow = this.contextWindowTokens.get(channelId);
+    return ctxWindow ? { ...usage, contextWindowTokens: ctxWindow } : usage;
   }
 
   /** Cache the model's max_context_window_tokens for accurate /context display. */
@@ -1058,11 +1065,7 @@ export class SessionManager {
     const model = modelList.find((m: any) => m.id === modelId);
     const ctxTokens = model?.capabilities?.limits?.max_context_window_tokens;
     if (typeof ctxTokens === 'number' && ctxTokens > 0) {
-      const existing = this.contextUsage.get(channelId);
-      if (existing) {
-        existing.contextWindowTokens = ctxTokens;
-      }
-      // Don't create synthetic entries — wait for a real session.usage_info event
+      this.contextWindowTokens.set(channelId, ctxTokens);
     }
   }
 
@@ -2082,11 +2085,9 @@ export class SessionManager {
   private attachSessionEvents(session: CopilotSession, channelId: string): void {
     const unsub = session.on((event: any) => {
       if (event.type === 'session.usage_info' && event.data) {
-        const existing = this.contextUsage.get(channelId);
         this.contextUsage.set(channelId, {
           currentTokens: event.data.currentTokens,
           tokenLimit: event.data.tokenLimit,
-          contextWindowTokens: existing?.contextWindowTokens,
         });
       }
       this.eventHandler?.(session.sessionId, channelId, event);
