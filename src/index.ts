@@ -8,7 +8,7 @@ import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, setChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules, getTaskHistory } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
-import { initScheduler, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
+import { initScheduler, loadConfigJobs, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { checkUserAccess } from './core/access-control.js';
@@ -501,6 +501,31 @@ async function main(): Promise<void> {
       }
     },
   });
+
+  // Load config-defined scheduled jobs (morning-briefing, email-scan, etc.)
+  const schedulerCfg = config.scheduler;
+  if (schedulerCfg?.jobs?.length) {
+    const timezone = schedulerCfg.timezone ?? 'UTC';
+    const resolvedJobs = schedulerCfg.jobs.flatMap(job => {
+      // Resolve channel by ID first, then by name (case-insensitive)
+      const ch = config.channels.find(c => c.id === job.channel)
+        ?? config.channels.find(c => c.name.toLowerCase() === job.channel.toLowerCase());
+      if (!ch) {
+        log.warn(`Scheduler job "${job.id}": channel "${job.channel}" not found in config — skipping`);
+        return [];
+      }
+      const botName = getChannelBotName(ch.id);
+      return [{
+        id: job.id,
+        cron: job.cron,
+        channelId: ch.id,
+        botName,
+        enabled: job.enabled,
+        timezone,
+      }];
+    });
+    loadConfigJobs(resolvedJobs);
+  }
 
   // Nudge admin bot sessions that may have been mid-task before restart
   nudgeAdminSessions(sessionManager).catch(err =>
@@ -1125,6 +1150,20 @@ async function handleInboundMessage(
             });
             await adapter.sendMessage(msg.channelId, `📋 **Scheduled Tasks**\n\n${lines.join('\n\n')}`, { threadRootId: threadRoot });
           }
+        } else if (sub === 'enable') {
+          if (!subArg) {
+            await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule enable <id>`', { threadRootId: threadRoot });
+          } else {
+            const enabled = resumeJob(subArg, msg.channelId);
+            await adapter.sendMessage(msg.channelId, enabled ? `✅ Job \`${subArg}\` enabled.` : `⚠️ Job \`${subArg}\` not found.`, { threadRootId: threadRoot });
+          }
+        } else if (sub === 'disable') {
+          if (!subArg) {
+            await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule disable <id>`', { threadRootId: threadRoot });
+          } else {
+            const disabled = pauseJob(subArg, msg.channelId);
+            await adapter.sendMessage(msg.channelId, disabled ? `⏸️ Job \`${subArg}\` disabled.` : `⚠️ Job \`${subArg}\` not found.`, { threadRootId: threadRoot });
+          }
         } else if (sub === 'cancel' || sub === 'remove' || sub === 'delete') {
           if (!subArg) {
             await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule cancel <id>`', { threadRootId: threadRoot });
@@ -1161,7 +1200,7 @@ async function handleInboundMessage(
             await adapter.sendMessage(msg.channelId, `📋 **Task History** (last ${entries.length})\n${lines.join('\n')}`, { threadRootId: threadRoot });
           }
         } else {
-          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|cancel|pause|resume|history] [id]`', { threadRootId: threadRoot });
+          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|enable|disable|cancel|pause|resume|history] [id]`', { threadRootId: threadRoot });
         }
         break;
       }

@@ -811,3 +811,154 @@ describe('logLevel config validation', () => {
     expect2(config.logLevel).toBeUndefined();
   });
 });
+
+// --- scheduler config validation ---
+
+import { getSchedulerConfig } from './config.js';
+
+describe('scheduler config validation', () => {
+  let tmpDir: string;
+  let configFile: string;
+
+  beforeEach(() => {
+    _resetConfigForTest();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-sched-test-'));
+    configFile = path.join(tmpDir, 'config.json');
+  });
+
+  afterEach(() => {
+    _resetConfigForTest();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loads config without scheduler (defaults to undefined)', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+    expect(getSchedulerConfig()).toBeUndefined();
+  });
+
+  it('loads a valid scheduler config with all five built-in jobs', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        timezone: 'America/Chicago',
+        jobs: [
+          { id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1', enabled: true },
+          { id: 'email-scan', cron: '0 8,10,12,14,16,18 * * 1-5', channel: 'ch1', enabled: true },
+          { id: 'meeting-prep', cron: '0,30 7-17 * * 1-5', channel: 'ch1', enabled: false },
+          { id: 'evening-recap', cron: '0 17 * * 1-5', channel: 'ch1', enabled: false },
+          { id: 'weekly-pipeline', cron: '0 8 * * 1', channel: 'ch1', enabled: false },
+        ],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+
+    const sched = getSchedulerConfig();
+    expect(sched).toBeDefined();
+    expect(sched!.timezone).toBe('America/Chicago');
+    expect(sched!.jobs).toHaveLength(5);
+    expect(sched!.jobs[0].id).toBe('morning-briefing');
+    expect(sched!.jobs[0].cron).toBe('30 7 * * 1-5');
+    expect(sched!.jobs[0].channel).toBe('ch1');
+    expect(sched!.jobs[0].enabled).toBe(true);
+    expect(sched!.jobs[2].enabled).toBe(false);
+  });
+
+  it('defaults enabled to true when omitted', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [{ id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1' }],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+    expect(getSchedulerConfig()!.jobs[0].enabled).toBe(true);
+  });
+
+  it('defaults timezone to undefined when omitted', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [{ id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1' }],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    loadConfig(configFile);
+    expect(getSchedulerConfig()!.timezone).toBeUndefined();
+  });
+
+  it('rejects non-object scheduler', () => {
+    const cfg = makeConfig({ scheduler: 'yes' });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('scheduler must be an object');
+  });
+
+  it('rejects non-array jobs', () => {
+    const cfg = makeConfig({ scheduler: { jobs: 'not-array' } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('scheduler.jobs must be an array');
+  });
+
+  it('rejects job missing id', () => {
+    const cfg = makeConfig({ scheduler: { jobs: [{ cron: '0 9 * * 1-5', channel: 'ch1' }] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('Each scheduler job must have an "id" string');
+  });
+
+  it('rejects job missing cron', () => {
+    const cfg = makeConfig({ scheduler: { jobs: [{ id: 'morning-briefing', channel: 'ch1' }] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('"morning-briefing" must have a "cron" expression');
+  });
+
+  it('rejects job missing channel', () => {
+    const cfg = makeConfig({ scheduler: { jobs: [{ id: 'morning-briefing', cron: '0 9 * * 1-5' }] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('"morning-briefing" must have a "channel"');
+  });
+
+  it('rejects duplicate job ids', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [
+          { id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1' },
+          { id: 'morning-briefing', cron: '0 8 * * 1-5', channel: 'ch1' },
+        ],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('Duplicate scheduler job id: "morning-briefing"');
+  });
+
+  it('rejects non-boolean enabled', () => {
+    const cfg = makeConfig({
+      scheduler: {
+        jobs: [{ id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1', enabled: 'yes' }],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('enabled must be a boolean');
+  });
+
+  it('rejects non-string timezone', () => {
+    const cfg = makeConfig({ scheduler: { timezone: 42, jobs: [] } });
+    fs.writeFileSync(configFile, JSON.stringify(cfg));
+    expect(() => loadConfig(configFile)).toThrow('scheduler.timezone must be a string');
+  });
+
+  it('detects scheduler changes on reload', () => {
+    fs.writeFileSync(configFile, JSON.stringify(makeConfig()));
+    loadConfig(configFile);
+
+    const updated = makeConfig({
+      scheduler: {
+        timezone: 'America/New_York',
+        jobs: [{ id: 'morning-briefing', cron: '30 7 * * 1-5', channel: 'ch1', enabled: true }],
+      },
+    });
+    fs.writeFileSync(configFile, JSON.stringify(updated));
+
+    const result = reloadConfig();
+    expect(result.success).toBe(true);
+    expect(result.changes.some(c => c.includes('scheduler'))).toBe(true);
+  });
+});

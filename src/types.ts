@@ -56,6 +56,20 @@ export interface ObsidianConfig {
   knowledgeFolder?: string;       // folder for general reference notes (default: "Knowledge")
 }
 
+// A single config-defined scheduled job
+export interface ScheduledJobConfig {
+  id: string;        // well-known job ID (e.g., "morning-briefing")
+  cron: string;      // cron expression (e.g., "30 7 * * 1-5")
+  channel: string;   // target channel ID or channel name from config
+  enabled: boolean;  // whether the job starts enabled (user toggles persist in DB)
+}
+
+// Scheduler configuration block
+export interface SchedulerConfig {
+  timezone?: string;          // IANA timezone for all jobs (e.g., "America/Chicago")
+  jobs: ScheduledJobConfig[]; // predefined recurring jobs
+}
+
 // Full app config
 export interface AppConfig {
   platforms: Record<string, PlatformConfig>;
@@ -75,6 +89,7 @@ export interface AppConfig {
   permissions?: PermissionsConfig;
   interAgent?: InterAgentConfig;
   obsidian?: ObsidianConfig;
+  scheduler?: SchedulerConfig;
 }
 
 // Inter-agent communication config
