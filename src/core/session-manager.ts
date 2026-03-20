@@ -2,6 +2,7 @@ import { CopilotSession, approveAll } from '@github/copilot-sdk';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getGraphContext } from './graph-context.js';
 import { CopilotBridge } from './bridge.js';
 import {
   getChannelSession, setChannelSession, clearChannelSession,
@@ -716,6 +717,14 @@ export class SessionManager {
   /** Send a message to a channel's session. Returns immediately; responses come via events. */
   async sendMessage(channelId: string, text: string, attachments?: Array<{ type: 'file'; path: string; displayName?: string }>, userId?: string): Promise<string> {
     if (userId) this.lastMessageUserIds.set(channelId, userId);
+
+    // Inject knowledge graph context if available
+    const workspace = getWorkspacePath(channelId);
+    const graphFile = path.join(workspace, 'memory-graph.json');
+    const graphCtx = getGraphContext(graphFile, text);
+    if (graphCtx) {
+      text = `${graphCtx}\n\n---\n\nUser message: ${text}`;
+    }
 
     // Auto-deny any pending permissions so the session unblocks
     this.clearPendingPermissions(channelId);
