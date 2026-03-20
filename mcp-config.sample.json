@@ -1,0 +1,16 @@
+{
+  "_comment": "Sample MCP server configuration for Bridge. Place this file at ~/.copilot/mcp-config.json (user-level) or <workspace>/mcp-config.json (workspace-level).",
+  "mcpServers": {
+    "_comment_memory": "MCP Memory Server — persistent knowledge graph stored as a local JSON file. Install: npm i -g @modelcontextprotocol/server-memory",
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "~/.bridge/memory-graph.json"
+      }
+    }
+  }
+}

@@ -50,7 +50,7 @@ export interface CommandResult {
   handled: boolean;
   response?: string;
   action?: 'new_session' | 'reload_session' | 'reload_config' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
-           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'skill_toggle' | 'mcp' | 'plan';
+           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'skill_toggle' | 'mcp' | 'plan' | 'correct';
   payload?: any;
 }
 
@@ -548,6 +548,14 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       return { handled: true, response: formatAccountDetail(account) };
     }
 
+    case 'correct': {
+      const correction = parsed.args?.trim();
+      if (!correction) {
+        return { handled: true, response: '⚠️ Usage: `/correct <correction text>`\nExample: `/correct MACARR does not cover Xylem`' };
+      }
+      return { handled: true, action: 'correct', payload: correction, response: '📝 Recording correction...' };
+    }
+
     case 'help': {
       const showAll = parsed.args?.trim().toLowerCase() === 'all';
       const common = [
@@ -621,6 +629,9 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '`/accounts renewals [days]` — Upcoming renewals (default: 90 days)',
           '`/accounts motion <motion>` — Filter accounts by motion',
           '`/accounts <priority>` — Filter by priority (urgent/whale/high/normal/low)',
+          '',
+          '**Knowledge**',
+          '`/correct <text>` — Record a factual correction to corrections.md and update knowledge graph',
           '',
           '`/help` — Show common commands',
         ].join('\n'),

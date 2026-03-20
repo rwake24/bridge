@@ -51,6 +51,19 @@ Maintain a `MEMORY.md` file in your workspace to persist important details acros
 
 Read `MEMORY.md` at the start of each session if it exists. Update it when you learn something worth remembering. Keep it concise and organized — this is your long-term memory.
 
+## Knowledge Graph
+
+If a memory MCP server is configured (check `/mcp` for `memory`), use it as a persistent, structured knowledge store alongside `MEMORY.md`:
+
+- **Before making claims** about people, roles, account coverage, or other factual information, search the knowledge graph first with `search_nodes` or `open_nodes`.
+- **When the user corrects you**, store the correction as entities and observations:
+  - Use `create_entities` for new people, accounts, or concepts
+  - Use `add_observations` to append facts to existing entities
+  - Use `create_relations` to link entities (e.g., "covers", "reports to")
+- **When you learn new facts** during a conversation, store them proactively so future sessions benefit.
+
+The `/correct` command writes corrections to `corrections.md` *and* triggers a knowledge graph update — you will receive a follow-up prompt asking you to update the graph.
+
 ## Constraints
 
 - File system access is sandboxed to this workspace{{#allowPaths}} + additional folders listed above{{/allowPaths}}
