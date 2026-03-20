@@ -65,7 +65,7 @@ function seedAccounts(data: any[]): { entities: Entity[]; relations: Relation[] 
   const relations: Relation[] = [];
 
   for (const row of data) {
-    const name = row['Account Name'] || row['accountName'] || row['name'];
+    const name = row['Account Name'] || row['MS Sales Account Name'] || row['accountName'] || row['name'];
     if (!name) continue;
 
     const observations: string[] = [];
@@ -88,15 +88,56 @@ function seedAlignment(data: any[]): { entities: Entity[]; relations: Relation[]
   const relations: Relation[] = [];
   const peopleSet = new Map<string, Entity>();
 
+  // Map column names to role labels (supports both old simple and new FY26 format)
+  const roleFieldMap: Record<string, string> = {
+    'FY26 AE': 'AE',
+    'AE': 'AE',
+    'CLOUD AND AI SSP': 'SSP',
+    'SSP': 'SSP',
+    'CLOUD AND AI SEM': 'SEM',
+    'SEM': 'SEM',
+    'CLOUD AND AI SE - INFRA': 'SE-Infra',
+    'SSE': 'SE-Infra',
+    'SE': 'SE-Infra',
+    'CLOUD AND AI SE - DATA AND ANALYTICS': 'SE-Data',
+    'CLOUD AND AI SE - APP AND AI': 'SE-AppAI',
+    'CLOUD AND AI SE - SOFTWARE (DEV)': 'SE-Dev',
+    'SECURITY SSP': 'Security-SSP',
+    'SECURITY SE': 'Security-SE',
+    'Security SSP': 'Security-SSP',
+    'Data Security SE': 'Data-Security-SE',
+    'AI WORKFORCE SSP': 'AI-Workforce-SSP',
+    'AI WORKFORCE SE': 'AI-Workforce-SE',
+    'AI BUSINESS PROCESS SSP': 'AI-BizProcess-SSP',
+    'AI BUSINESS PROCESS SE - SALES': 'AI-BizProcess-SE-Sales',
+    'AI BUSINESS PROCESS SE - SERVICE': 'AI-BizProcess-SE-Service',
+    'AI BUSINESS PROCESS SE - POWER PLATFORM': 'AI-BizProcess-SE-PowerPlatform',
+    'Commercial Executive': 'Commercial-Executive',
+    'CSA': 'CSA',
+    'FY26 ATU M1': 'ATU-M1',
+    'CONSULTING AE': 'Consulting-AE',
+  };
+
   for (const row of data) {
-    const account = row['Account Name'] || row['accountName'] || row['Account'];
+    const account = row['MS Sales Account Name'] || row['Account Name'] || row['accountName'] || row['Account'];
     if (!account) continue;
 
-    // Extract people fields (AE, SSP, SSE, etc.)
-    const roleFields = ['AE', 'SSP', 'SSE', 'SE', 'CSA', 'Security SSP'];
-    for (const role of roleFields) {
-      const person = row[role];
-      if (!person || person === 'N/A' || person === '') continue;
+    // Store account-level metadata
+    const acctObs: string[] = [];
+    if (row['TPID']) acctObs.push(`TPID: ${row['TPID']}`);
+    if (row['Sub Segment']) acctObs.push(`Segment: ${row['Sub Segment']}`);
+    if (row['State Or Province']) acctObs.push(`State: ${row['State Or Province']}`);
+    if (row['City']) acctObs.push(`City: ${row['City']}`);
+    if (row['Account tag']) acctObs.push(`Tag: ${row['Account tag']}`);
+    if (row['FY26 ATU']) acctObs.push(`ATU: ${row['FY26 ATU']}`);
+    if (acctObs.length) {
+      entities.push({ name: account, entityType: 'Account', observations: acctObs });
+    }
+
+    // Extract people fields
+    for (const [column, role] of Object.entries(roleFieldMap)) {
+      const person = row[column];
+      if (!person || person === 'N/A' || person === '' || person === 'TBH' || String(person).startsWith('TBH')) continue;
 
       // Create or update person entity
       if (!peopleSet.has(person)) {
