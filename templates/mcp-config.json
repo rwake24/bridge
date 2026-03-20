@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "type": "local",
+      "env": {
+        "MEMORY_FILE_PATH": "{{workspacePath}}/memory-graph.json"
+      }
+    }
+  }
+}

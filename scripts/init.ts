@@ -583,14 +583,24 @@ async function main() {
     let addingServers = true;
     while (addingServers) {
       const serverTypeChoice = await choose('Add MCP server:', [
+        'Memory (persistent knowledge graph)',
         'WorkIQ (pre-configured template)',
         'Custom (enter command manually)',
         'Done — no more servers',
       ]);
 
-      if (serverTypeChoice === 2) {
+      if (serverTypeChoice === 3) {
         addingServers = false;
       } else if (serverTypeChoice === 0) {
+        // Memory MCP template
+        const memoryPath = await ask('Memory file path (leave blank for workspace default)');
+        mcpConfig.mcpServers['memory'] = {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-memory'],
+          ...(memoryPath ? { env: { MEMORY_FILE_PATH: memoryPath } } : {}),
+        };
+        success('Added Memory MCP server (persistent knowledge graph)');
+      } else if (serverTypeChoice === 1) {
         // WorkIQ template
         const workiqUrl = await ask('WorkIQ server URL', 'http://localhost:3000');
         const workiqKey = await ask('WorkIQ API key (leave blank to skip)');
