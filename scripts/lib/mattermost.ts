@@ -237,7 +237,7 @@ export async function addBotToChannel(
 }
 
 /**
- * The standard agent0 channel set.
+ * The standard bridge channel set.
  * These channels are created by `createAgentChannelStructure` during init.
  */
 export const AGENT0_CHANNELS: AgentChannelDef[] = [
@@ -278,7 +278,7 @@ export const AGENT0_CHANNELS: AgentChannelDef[] = [
     header: 'Action items and tasks extracted from meetings and emails.',
   },
   {
-    name: 'agent0-logs',
+    name: 'bridge-logs',
     displayName: 'Agent0 Logs',
     purpose: 'Bot status, errors, job runs',
     header: 'Bot status updates, error notifications, and job run logs.',

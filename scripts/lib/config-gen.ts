@@ -138,10 +138,10 @@ export function buildConfig(opts: {
 }
 
 export function getConfigDir(): string {
-  if (process.env.AGENT0_HOME) {
-    return path.resolve(process.env.AGENT0_HOME);
+  if (process.env.BRIDGE_HOME) {
+    return path.resolve(process.env.BRIDGE_HOME);
   }
-  return path.join(os.homedir(), '.agent0');
+  return path.join(os.homedir(), '.bridge');
 }
 
 export function getConfigPath(): string {

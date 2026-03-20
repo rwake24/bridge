@@ -1,16 +1,15 @@
 {
-  "name": "bridge",
+  "name": "@field22labs/bridge",
   "version": "0.9.2",
-  "description": "Bridge — GitHub Copilot to Mattermost with SE workflow automation",
+  "description": "Bridge — Personal AI agent framework. Copilot SDK + MCP + Knowledge Graph. Built by Field22 Labs.",
   "type": "module",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ChrisRomp/copilot-bridge.git"
+    "url": "https://github.com/rwake24/bridge.git"
   },
   "bin": {
-    "bridge": "bin/bridge.js",
-    "agent0": "bin/agent0.js"
+    "bridge": "bin/bridge.js"
   },
   "files": [
     "bin/",

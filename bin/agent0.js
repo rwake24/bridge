@@ -19,9 +19,9 @@ const commands = {
 const command = process.argv[2];
 
 if (!command || command === '--help' || command === '-h') {
-  console.log(`agent0 — AI agent bridge for Mattermost and Slack
+  console.log(`bridge — AI agent bridge for Mattermost and Slack
 
-Usage: agent0 <command>
+Usage: bridge <command>
 
 Commands:
   init               Interactive setup wizard
@@ -44,7 +44,7 @@ if (command === '--version' || command === '-v') {
 
 const script = commands[command];
 if (!script) {
-  console.error(`Unknown command: ${command}\nRun 'agent0 --help' for usage.`);
+  console.error(`Unknown command: ${command}\nRun 'bridge --help' for usage.`);
   process.exit(1);
 }
 

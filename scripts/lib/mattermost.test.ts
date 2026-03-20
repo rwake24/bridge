@@ -70,7 +70,7 @@ describe('mattermost validation', () => {
       expect(names).toContain('account-prep');
       expect(names).toContain('accounts');
       expect(names).toContain('tasks');
-      expect(names).toContain('agent0-logs');
+      expect(names).toContain('bridge-logs');
       expect(AGENT0_CHANNELS).toHaveLength(7);
     });
 

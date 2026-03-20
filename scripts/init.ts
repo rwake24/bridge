@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * agent0 init — Interactive setup wizard.
+ * bridge init — Interactive setup wizard.
  *
  * Usage: npm run init
  *        npx tsx scripts/init.ts
@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
 import { askRequired, askSecret, ask, confirm, choose, pressEnter, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
-import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo, getMyTeams, getChannelByTeamAndName, createMattermostChannel, addBotToChannel, AGENT0_CHANNELS, type MattermostBotInfo } from './lib/mattermost.js';
+import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo, getMyTeams, getChannelByTeamAndName, createMattermostChannel, addBotToChannel, BRIDGE_CHANNELS, type MattermostBotInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, readExistingConfig, mergeConfig, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
 import { generateManifestUrl, validateSlackToken, validateAppToken, resolveSlackUser } from './lib/slack.js';
 import { detectPlatform, getServiceStatus } from './lib/service.js';
@@ -68,8 +68,8 @@ async function readFromKeychain(service: string, account: string): Promise<strin
 async function main() {
   const isCli = process.env.BRIDGE_CLI === '1';
   console.log();
-  heading('🚀 agent0 setup');
-  dim('Interactive wizard to configure agent0.\n');
+  heading('🚀 bridge setup');
+  dim('Interactive wizard to configure bridge.\n');
 
   // --- Step 1: Prerequisites ---
   heading('Step 1: Prerequisites');
@@ -231,10 +231,10 @@ async function main() {
       }
     }
 
-    // Auto-create agent0 channel structure
+    // Auto-create bridge channel structure
     heading('Mattermost Channel Structure');
-    info('agent0 uses dedicated channels for briefings, tasks, logs, and more.');
-    dim(`Channels: ${AGENT0_CHANNELS.map(c => c.name).join(', ')}\n`);
+    info('bridge uses dedicated channels for briefings, tasks, logs, and more.');
+    dim(`Channels: ${BRIDGE_CHANNELS.map(c => c.name).join(', ')}\n`);
 
     let autoCreatedBotInfo: MattermostBotInfo | undefined;
     // Prefer the admin bot for channel creation; fall back to the first bot
@@ -270,7 +270,7 @@ async function main() {
         }
 
         blank();
-        for (const def of AGENT0_CHANNELS) {
+        for (const def of BRIDGE_CHANNELS) {
           // Check if the channel already exists
           const existing = await getChannelByTeamAndName(mmUrl, adminBot.token, selectedTeamId, def.name);
           let channelId: string | undefined;
@@ -317,7 +317,7 @@ async function main() {
           }
         }
         blank();
-        success(`Created/verified ${AGENT0_CHANNELS.length} agent0 channels.`);
+        success(`Created/verified ${BRIDGE_CHANNELS.length} bridge channels.`);
       }
     } else if (autoCreate && !autoCreatedBotInfo) {
       warn('Could not retrieve bot identity — skipping auto-create. Re-run after verifying the bot token.');
@@ -487,7 +487,7 @@ async function main() {
   // --- Step 4: GitHub PAT (optional) ---
   if (!mergeMode) {
     heading('Step 4: GitHub Personal Access Token (Optional)');
-    info('A GitHub PAT allows agent0 to make authenticated GitHub API calls.');
+    info('A GitHub PAT allows bridge to make authenticated GitHub API calls.');
     dim('Scopes needed: repo, read:org (or adjust for your use case)\n');
 
     const storePat = await confirm('Store a GitHub Personal Access Token now?', false);
@@ -495,9 +495,9 @@ async function main() {
       const pat = await askSecret('GitHub PAT (ghp_... or github_pat_...)');
       if (pat) {
         // Try OS keychain first, fall back to file
-        const keychainOk = await storeInKeychain('agent0', 'github-pat', pat);
+        const keychainOk = await storeInKeychain('bridge', 'github-pat', pat);
         if (keychainOk) {
-          success('GitHub PAT stored in OS keychain (service: agent0, account: github-pat)');
+          success('GitHub PAT stored in OS keychain (service: bridge, account: github-pat)');
         } else {
           // Fall back: write to a restricted file
           const patFile = path.join(getConfigDir(), '.github-pat');
@@ -542,7 +542,7 @@ async function main() {
 
     // Permission mode
     blank();
-    info('Default permission mode — controls how agent0 handles tool use:');
+    info('Default permission mode — controls how bridge handles tool use:');
     dim('  interactive  — asks before each tool use (most secure, default)');
     dim('  auto-approve — approves all tool calls automatically (personal/trusted setups)');
     dim('  allowlist    — auto-approve only allowed tools, prompt for others');
@@ -557,7 +557,7 @@ async function main() {
 
   // --- Step 6: MCP Servers (Optional) ---
   heading('Step 6: MCP Servers (Optional)');
-  info('MCP (Model Context Protocol) servers extend agent0 with external tools and APIs.');
+  info('MCP (Model Context Protocol) servers extend bridge with external tools and APIs.');
 
   const mcpConfigPath = path.join(os.homedir(), '.copilot', 'mcp-config.json');
   dim(`Configured servers are loaded from ${mcpConfigPath}\n`);
@@ -657,15 +657,15 @@ async function main() {
   const osPlatform = detectPlatform();
   if (osPlatform === 'macos') {
     info('To run as a launchd service (auto-start at login):');
-    dim(isCli ? '  agent0 install-service\n' : '  npm run install-service\n');
+    dim(isCli ? '  bridge install-service\n' : '  npm run install-service\n');
   } else if (osPlatform === 'linux') {
     info('To run as a systemd service (auto-start at boot):');
-    dim(isCli ? '  agent0 install-service' : '  npm run install-service');
+    dim(isCli ? '  bridge install-service' : '  npm run install-service');
     dim('  (requires sudo — installs to /etc/systemd/system/)\n');
     if (!isCli) dim('  Note: build first with npm run build\n');
   } else {
     info(isCli
-      ? 'Run the bridge manually: agent0 start'
+      ? 'Run the bridge manually: bridge start'
       : 'Run the bridge manually: npm run dev (development) or npm start (production)');
   }
 
@@ -684,9 +684,9 @@ async function main() {
   const showNextSteps = () => {
     dim('Next steps:');
     if (isCli) {
-      dim('  agent0 check            Validate your setup');
-      dim('  agent0 start            Start the bridge');
-      dim('  agent0 install-service  Install as a system service');
+      dim('  bridge check            Validate your setup');
+      dim('  bridge start            Start the bridge');
+      dim('  bridge install-service  Install as a system service');
     } else {
       dim('  npm run dev              Start in development mode (watch)');
       dim('  npm run check            Validate your setup');

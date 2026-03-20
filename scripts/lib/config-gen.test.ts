@@ -152,25 +152,25 @@ describe('config-gen', () => {
   });
 
   describe('paths', () => {
-    it('returns config dir under home with .agent0 default', () => {
-      expect(getConfigDir()).toBe(path.join(os.homedir(), '.agent0'));
+    it('returns config dir under home with .bridge default', () => {
+      expect(getConfigDir()).toBe(path.join(os.homedir(), '.bridge'));
     });
 
     it('returns config path as config.json', () => {
-      expect(getConfigPath()).toBe(path.join(os.homedir(), '.agent0', 'config.json'));
+      expect(getConfigPath()).toBe(path.join(os.homedir(), '.bridge', 'config.json'));
     });
 
-    it('respects AGENT0_HOME env var', () => {
-      const original = process.env.AGENT0_HOME;
+    it('respects BRIDGE_HOME env var', () => {
+      const original = process.env.BRIDGE_HOME;
       try {
-        process.env.AGENT0_HOME = '/custom/agent0/home';
-        expect(getConfigDir()).toBe('/custom/agent0/home');
-        expect(getConfigPath()).toBe('/custom/agent0/home/config.json');
+        process.env.BRIDGE_HOME = '/custom/bridge/home';
+        expect(getConfigDir()).toBe('/custom/bridge/home');
+        expect(getConfigPath()).toBe('/custom/bridge/home/config.json');
       } finally {
         if (original === undefined) {
-          delete process.env.AGENT0_HOME;
+          delete process.env.BRIDGE_HOME;
         } else {
-          process.env.AGENT0_HOME = original;
+          process.env.BRIDGE_HOME = original;
         }
       }
     });

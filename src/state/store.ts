@@ -5,7 +5,7 @@ import fs from 'node:fs';
 
 const DB_PATH = process.env.AGENT0_HOME
   ? path.join(path.resolve(process.env.AGENT0_HOME), 'state.db')
-  : path.join(os.homedir(), '.agent0', 'state.db');
+  : path.join(os.homedir(), '.bridge', 'state.db');
 
 function safeParseStringArray(raw: string): string[] | undefined {
   try {

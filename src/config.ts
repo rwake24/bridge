@@ -225,7 +225,7 @@ function validateAndNormalize(raw: any): AppConfig {
 export function loadConfig(configPath?: string): AppConfig {
   const agentHome = process.env.AGENT0_HOME
     ? path.resolve(process.env.AGENT0_HOME)
-    : path.join(os.homedir(), '.agent0');
+    : path.join(os.homedir(), '.bridge');
 
   const filePath = configPath
     ?? process.env.BRIDGE_CONFIG
