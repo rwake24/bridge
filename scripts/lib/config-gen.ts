@@ -31,6 +31,17 @@ export interface ConfigDefaults {
   triggerMode?: string;
   threadedReplies?: boolean;
   verbose?: boolean;
+  /** Wizard-facing: 'auto-approve' is stored as 'autopilot' in config.json */
+  permissionMode?: 'interactive' | 'auto-approve' | 'allowlist';
+}
+
+/** Defaults as stored in config.json (uses runtime permissionMode values). */
+export interface StoredDefaults {
+  model?: string;
+  triggerMode?: string;
+  threadedReplies?: boolean;
+  verbose?: boolean;
+  permissionMode?: 'interactive' | 'autopilot' | 'allowlist';
 }
 
 export interface GeneratedConfig {
@@ -52,7 +63,7 @@ export interface GeneratedConfig {
     triggerMode?: string;
     threadedReplies?: boolean;
   }>;
-  defaults?: ConfigDefaults;
+  defaults?: StoredDefaults;
 }
 
 export function buildConfig(opts: {
@@ -116,13 +127,21 @@ export function buildConfig(opts: {
     if (opts.defaults.triggerMode) config.defaults.triggerMode = opts.defaults.triggerMode;
     if (opts.defaults.threadedReplies !== undefined) config.defaults.threadedReplies = opts.defaults.threadedReplies;
     if (opts.defaults.verbose !== undefined) config.defaults.verbose = opts.defaults.verbose;
+    if (opts.defaults.permissionMode !== undefined) {
+      // Map wizard-facing 'auto-approve' to the runtime value 'autopilot'
+      config.defaults.permissionMode =
+        opts.defaults.permissionMode === 'auto-approve' ? 'autopilot' : opts.defaults.permissionMode;
+    }
   }
 
   return config;
 }
 
 export function getConfigDir(): string {
-  return path.join(os.homedir(), '.copilot-bridge');
+  if (process.env.AGENT0_HOME) {
+    return path.resolve(process.env.AGENT0_HOME);
+  }
+  return path.join(os.homedir(), '.agent0');
 }
 
 export function getConfigPath(): string {

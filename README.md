@@ -50,15 +50,31 @@ More screenshots [here](docs/screenshots.md).
 2. **Install** (pick one):
    - **npm**: `npm install -g @chrisromp/copilot-bridge`
    - **From source**: `git clone https://github.com/ChrisRomp/copilot-bridge.git && cd copilot-bridge && npm install`
-3. **Configure**: `copilot-bridge init` (or `npm run init` from source) — interactive wizard
-4. **Validate**: `copilot-bridge check` (or `npm run check`)
-5. **Run**: `copilot-bridge start` (or `npm run dev` for development with watch mode)
+3. **Configure**: `agent0 init` (or `copilot-bridge init` / `npm run init` from source) — interactive wizard
+4. **Validate**: `agent0 check` (or `npm run check`)
+5. **Run**: `agent0 start` (or `npm run dev` for development with watch mode)
 
 For DMs, that's it — the bridge auto-discovers DM channels for each bot. For group channels, add a `channels` entry mapping the channel ID to a working directory. See the [Setup Guide](docs/setup.md) for the full walkthrough or [Configuration](docs/configuration.md) for reference.
 
+### Permission Modes
+
+The setup wizard (`agent0 init`) prompts you to choose a default permission mode:
+
+| Mode | Description |
+|------|-------------|
+| `interactive` | **(default)** Asks before each tool use — most secure |
+| `auto-approve` | Approves all tool calls automatically — convenient for personal/trusted setups |
+| `allowlist` | Auto-approves only listed tools; prompts for others |
+
+You can change the permission mode at any time via chat commands:
+- `/yolo` — Toggle auto-approve for the current session
+- `/autopilot` — Toggle autopilot mode (autonomous loop, implies auto-approve)
+
+The default is stored in `~/.agent0/config.json` under `defaults.permissionMode` (values: `interactive`, `autopilot`, `allowlist`).
+
 ### Running as a service
 
-See the [Setup Guide — Running as a Service](docs/setup.md#running-as-a-service) for macOS (launchd) and Linux (systemd) instructions, or run `copilot-bridge install-service` to install automatically.
+See the [Setup Guide — Running as a Service](docs/setup.md#running-as-a-service) for macOS (launchd) and Linux (systemd) instructions, or run `agent0 install-service` to install automatically.
 
 ## Chat Commands
 

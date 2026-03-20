@@ -9,7 +9,8 @@
     "url": "https://github.com/ChrisRomp/copilot-bridge.git"
   },
   "bin": {
-    "copilot-bridge": "bin/copilot-bridge.js"
+    "copilot-bridge": "bin/copilot-bridge.js",
+    "agent0": "bin/agent0.js"
   },
   "files": [
     "bin/",
@@ -52,6 +53,9 @@
     "luxon": "^3.7.2",
     "tsx": "^4.21.0",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

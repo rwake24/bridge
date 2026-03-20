@@ -193,6 +193,12 @@ function validateAndNormalize(raw: any): AppConfig {
   }
 
   // Apply defaults
+  const rawDefaults = raw.defaults ?? {};
+  const VALID_PERMISSION_MODES = ['interactive', 'autopilot', 'allowlist'];
+  if (rawDefaults.permissionMode !== undefined &&
+      (typeof rawDefaults.permissionMode !== 'string' || !VALID_PERMISSION_MODES.includes(rawDefaults.permissionMode))) {
+    throw new Error(`defaults.permissionMode must be one of: ${VALID_PERMISSION_MODES.join(', ')}`);
+  }
   const defaults = {
     model: 'claude-sonnet-4.6',
     agent: null,
@@ -200,7 +206,7 @@ function validateAndNormalize(raw: any): AppConfig {
     threadedReplies: true,
     verbose: false,
     permissionMode: 'interactive' as const,
-    ...raw.defaults,
+    ...rawDefaults,
   };
 
   return {
@@ -217,11 +223,17 @@ function validateAndNormalize(raw: any): AppConfig {
 }
 
 export function loadConfig(configPath?: string): AppConfig {
+  const agentHome = process.env.AGENT0_HOME
+    ? path.resolve(process.env.AGENT0_HOME)
+    : path.join(os.homedir(), '.agent0');
+
   const filePath = configPath
     ?? process.env.COPILOT_BRIDGE_CONFIG
-    ?? (fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
-        ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
-        : path.join(process.cwd(), 'config.json'));
+    ?? (fs.existsSync(path.join(agentHome, 'config.json'))
+        ? path.join(agentHome, 'config.json')
+        : fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
+          ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
+          : path.join(process.cwd(), 'config.json'));
 
   if (!fs.existsSync(filePath)) {
     throw new Error(`Config file not found: ${filePath}. Copy config.sample.json to config.json and edit it.`);

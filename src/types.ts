@@ -80,7 +80,7 @@ export interface AppConfig {
     triggerMode: 'mention' | 'all';
     threadedReplies: boolean;
     verbose: boolean;
-    permissionMode: 'interactive' | 'autopilot';
+    permissionMode: 'interactive' | 'autopilot' | 'allowlist';
     fallbackModels?: string[];
     allowWorkspaceHooks?: boolean;
   };
@@ -209,7 +209,7 @@ export interface ChannelSessionState {
   verbose: boolean;
   triggerMode: 'mention' | 'all';
   threadedReplies: boolean;
-  permissionMode: 'interactive' | 'autopilot';
+  permissionMode: 'interactive' | 'autopilot' | 'allowlist';
   createdAt: string;
 }
 
