@@ -877,8 +877,12 @@ async function handleInboundMessage(
   if (cmdResult.handled) {
     const threadRoot = resolveThreadRoot(msg, threadRequested, channelConfig);
 
-    // Send response before action, except for actions that send their own ack after completing
-    const deferResponse = cmdResult.action === 'switch_model' || cmdResult.action === 'switch_agent' || cmdResult.action === 'set_reasoning';
+    // Send response before action, except for actions that send their own ack after completing.
+    // approve/deny are deferred so that we only send a message once we know whether a permission
+    // was actually pending — otherwise the user would see "✅ Approved." followed by
+    // "⚠️ No pending permission request." which is confusing.
+    const deferResponse = cmdResult.action === 'switch_model' || cmdResult.action === 'switch_agent' || cmdResult.action === 'set_reasoning'
+      || cmdResult.action === 'approve' || cmdResult.action === 'deny';
     if (cmdResult.response && !deferResponse) {
       await adapter.sendMessage(msg.channelId, cmdResult.response, { threadRootId: threadRoot });
     }
@@ -894,8 +898,13 @@ async function handleInboundMessage(
         channelThreadRoots.delete(msg.channelId);
         await finalizeActivityFeed(msg.channelId, adapter);
         loopDetector.reset(msg.channelId);
-        await sessionManager.newSession(msg.channelId);
-        await adapter.sendMessage(msg.channelId, '✅ New session created.', { threadRootId: threadRoot });
+        try {
+          await sessionManager.newSession(msg.channelId);
+          await adapter.sendMessage(msg.channelId, '✅ New session created.', { threadRootId: threadRoot });
+        } catch (err: any) {
+          log.error(`Failed to create new session on ${msg.channelId.slice(0, 8)}...:`, err);
+          await adapter.sendMessage(msg.channelId, `❌ Failed to create new session: ${err?.message ?? 'unknown error'}`, { threadRootId: threadRoot });
+        }
         break;
       }
       case 'stop_session': {
@@ -946,12 +955,17 @@ async function handleInboundMessage(
         await finalizeActivityFeed(msg.channelId, adapter);
         const prevSessionId = sessionManager.getSessionId(msg.channelId);
         const ackId = await adapter.sendMessage(msg.channelId, '⏳ Reloading session...', { threadRootId: threadRoot });
-        const sessionId = await sessionManager.reloadSession(msg.channelId);
-        const wasNew = !prevSessionId || sessionId !== prevSessionId;
-        const reloadMsg = wasNew
-          ? `⚠️ Previous session not found — created new session (\`${sessionId.slice(0, 8)}…\`).`
-          : `✅ Session reloaded (\`${sessionId.slice(0, 8)}…\`). Config and AGENTS.md re-read.`;
-        await adapter.updateMessage(msg.channelId, ackId, reloadMsg);
+        try {
+          const sessionId = await sessionManager.reloadSession(msg.channelId);
+          const wasNew = !prevSessionId || sessionId !== prevSessionId;
+          const reloadMsg = wasNew
+            ? `⚠️ Previous session not found — created new session (\`${sessionId.slice(0, 8)}…\`).`
+            : `✅ Session reloaded (\`${sessionId.slice(0, 8)}…\`). Config and AGENTS.md re-read.`;
+          await adapter.updateMessage(msg.channelId, ackId, reloadMsg);
+        } catch (err: any) {
+          log.error(`Failed to reload session on ${msg.channelId.slice(0, 8)}...:`, err);
+          await adapter.updateMessage(msg.channelId, ackId, `❌ Failed to reload session: ${err?.message ?? 'unknown error'}`);
+        }
         break;
       }
       case 'resume_session': {
@@ -1046,12 +1060,16 @@ async function handleInboundMessage(
         break;
       }
       case 'approve':
-        if (!sessionManager.resolvePermission(msg.channelId, true)) {
+        if (sessionManager.resolvePermission(msg.channelId, true)) {
+          await adapter.sendMessage(msg.channelId, cmdResult.response ?? '✅ Approved.', { threadRootId: threadRoot });
+        } else {
           await adapter.sendMessage(msg.channelId, '⚠️ No pending permission request.', { threadRootId: threadRoot });
         }
         break;
       case 'deny':
-        if (!sessionManager.resolvePermission(msg.channelId, false)) {
+        if (sessionManager.resolvePermission(msg.channelId, false)) {
+          await adapter.sendMessage(msg.channelId, cmdResult.response ?? '❌ Denied.', { threadRootId: threadRoot });
+        } else {
           await adapter.sendMessage(msg.channelId, '⚠️ No pending permission request.', { threadRootId: threadRoot });
         }
         break;
