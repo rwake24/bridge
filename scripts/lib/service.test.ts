@@ -9,18 +9,22 @@ import {
   getLogPath,
   generateNewsyslogConfig,
   getNewsyslogInstallPath,
+  getWindowsLogPath,
+  isNssmAvailable,
 } from './service.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 describe('service', () => {
   describe('detectPlatform', () => {
-    it('returns macos or linux based on current OS', () => {
+    it('returns macos, linux, or windows based on current OS', () => {
       const platform = detectPlatform();
       if (process.platform === 'darwin') {
         expect(platform).toBe('macos');
       } else if (process.platform === 'linux') {
         expect(platform).toBe('linux');
+      } else if (process.platform === 'win32') {
+        expect(platform).toBe('windows');
       } else {
         expect(platform).toBe('unsupported');
       }
@@ -147,6 +151,26 @@ describe('service', () => {
     it('systemd path is /etc/systemd/system/', () => {
       const p = getSystemdInstallPath();
       expect(p).toBe('/etc/systemd/system/copilot-bridge.service');
+    });
+  });
+
+  describe('getWindowsLogPath', () => {
+    it('returns path under .copilot-bridge', () => {
+      expect(getWindowsLogPath('C:\\Users\\test')).toBe(
+        path.join('C:\\Users\\test', '.copilot-bridge', 'copilot-bridge.log'),
+      );
+      expect(getWindowsLogPath('/home/test')).toBe('/home/test/.copilot-bridge/copilot-bridge.log');
+    });
+  });
+
+  describe('isNssmAvailable', () => {
+    it('returns a boolean', () => {
+      // On non-Windows CI the result is always false; we just verify the type.
+      const result = isNssmAvailable();
+      expect(typeof result).toBe('boolean');
+      if (process.platform !== 'win32') {
+        expect(result).toBe(false);
+      }
     });
   });
 });

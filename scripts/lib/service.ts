@@ -1,28 +1,32 @@
 /**
  * OS-specific service file generation and installation.
- * Supports macOS (launchd) and Linux (systemd system-level units).
+ * Supports macOS (launchd), Linux (systemd system-level units), and Windows (NSSM / sc.exe).
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 
-export type Platform = 'macos' | 'linux' | 'unsupported';
+export type Platform = 'macos' | 'linux' | 'windows' | 'unsupported';
 
 export function detectPlatform(): Platform {
   switch (process.platform) {
     case 'darwin': return 'macos';
     case 'linux': return 'linux';
+    case 'win32': return 'windows';
     default: return 'unsupported';
   }
 }
 
 export function getNodePath(): string {
   try {
+    if (process.platform === 'win32') {
+      return execSync('where node', { encoding: 'utf-8' }).trim().split('\n')[0].trim();
+    }
     return execSync('which node', { encoding: 'utf-8' }).trim();
   } catch {
-    return '/usr/local/bin/node';
+    return process.platform === 'win32' ? 'node' : '/usr/local/bin/node';
   }
 }
 
@@ -168,6 +172,12 @@ export function getSystemdInstallPath(): string {
   return '/etc/systemd/system/copilot-bridge.service';
 }
 
+// --- Windows (NSSM / sc.exe) ---
+
+const WINDOWS_SERVICE_NAME = 'CopilotBridge';
+const WINDOWS_SERVICE_DISPLAY = 'Copilot Bridge';
+const WINDOWS_SERVICE_DESCRIPTION = 'Mattermost <-> GitHub Copilot bridge';
+
 // --- Service status ---
 
 export function getServiceStatus(): { running: boolean; pid?: number; detail: string } {
@@ -211,5 +221,177 @@ export function getServiceStatus(): { running: boolean; pid?: number; detail: st
     }
   }
 
+  if (platform === 'windows') {
+    try {
+      const output = execSync(
+        `powershell -NoProfile -Command "Get-Service -Name ${WINDOWS_SERVICE_NAME} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Status"`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      ).trim();
+      if (output === 'Running') {
+        try {
+          const pid = execSync(
+            `powershell -NoProfile -Command "(Get-WmiObject Win32_Service -Filter \\"Name='${WINDOWS_SERVICE_NAME}'\\" | Select-Object -ExpandProperty ProcessId)"`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+          ).trim();
+          return { running: true, pid: parseInt(pid, 10), detail: `Windows Service, PID ${pid}` };
+        } catch {
+          return { running: true, detail: 'Windows Service: Running' };
+        }
+      }
+      if (output) return { running: false, detail: `Windows Service: ${output}` };
+      return { running: false, detail: 'Windows Service: not installed' };
+    } catch {
+      return { running: false, detail: 'Windows Service: not installed' };
+    }
+  }
+
   return { running: false, detail: 'unsupported platform' };
+}
+
+// --- Windows service management ---
+
+export interface WindowsServiceConfig {
+  bridgePath: string;
+  homePath: string;
+}
+
+/** Returns true when NSSM is found on PATH (preferred Windows service wrapper). */
+export function isNssmAvailable(): boolean {
+  try {
+    execSync('where nssm', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getWindowsServiceInstallPath(): string {
+  // NSSM / sc.exe manage services by name; no file path needed.
+  // Return a sentinel that callers can display.
+  return `Windows Service: ${WINDOWS_SERVICE_NAME}`;
+}
+
+export function getWindowsLogPath(homePath: string): string {
+  return path.join(homePath, '.copilot-bridge', 'copilot-bridge.log');
+}
+
+/** Run a command silently, ignoring errors (e.g., when removing a service that may not exist). */
+function tryExecFileIgnore(file: string, args: string[]): void {
+  try { execFileSync(file, args, { stdio: 'pipe' }); } catch { /* intentionally ignored */ }
+}
+
+/**
+ * Install the bridge as a Windows service.
+ *
+ * Preferred path: NSSM (handles SCM protocol, auto-restart, log capture).
+ * Fallback:       sc.exe + sc.exe failure (basic, no stdout capture).
+ *
+ * Both paths require an elevated (Administrator) shell.
+ */
+export function installWindowsService(
+  config: WindowsServiceConfig,
+): { installed: boolean; usedNssm: boolean; error?: string } {
+  const nodePath = getNodePath();
+  const scriptPath = path.join(config.bridgePath, 'dist', 'index.js');
+  const logPath = getWindowsLogPath(config.homePath);
+
+  // Ensure log directory exists
+  const logDir = path.dirname(logPath);
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+  if (isNssmAvailable()) {
+    try {
+      // Remove stale service entry if present (ignore errors)
+      tryExecFileIgnore('nssm', ['remove', WINDOWS_SERVICE_NAME, 'confirm']);
+
+      execFileSync('nssm', ['install', WINDOWS_SERVICE_NAME, nodePath], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppParameters', scriptPath], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppDirectory', config.bridgePath], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'DisplayName', WINDOWS_SERVICE_DISPLAY], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'Description', WINDOWS_SERVICE_DESCRIPTION], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'Start', 'SERVICE_AUTO_START'], { stdio: 'pipe' });
+      // Restart on failure: 10 s delay, reset counter after 1 day
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppRestartDelay', '10000'], { stdio: 'pipe' });
+      // Log stdout + stderr to file
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppStdout', logPath], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppStderr', logPath], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppStdoutCreationDisposition', '4'], { stdio: 'pipe' });
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppStderrCreationDisposition', '4'], { stdio: 'pipe' });
+      // Environment: HOME=<homePath>
+      execFileSync('nssm', ['set', WINDOWS_SERVICE_NAME, 'AppEnvironmentExtra', `HOME=${config.homePath}`], { stdio: 'pipe' });
+      execFileSync('nssm', ['start', WINDOWS_SERVICE_NAME], { stdio: 'pipe' });
+      return { installed: true, usedNssm: true };
+    } catch (err) {
+      return { installed: false, usedNssm: true, error: String(err) };
+    }
+  }
+
+  // Fallback: sc.exe (Node.js does not natively implement the SCM protocol,
+  // so stop/restart may be abrupt — NSSM is strongly recommended).
+  try {
+    // Remove stale entry
+    tryExecFileIgnore('sc.exe', ['delete', WINDOWS_SERVICE_NAME]);
+
+    // Pass binPath via execFileSync so the shell never parses the embedded quotes.
+    // sc.exe expects the full command as a single binPath= value with inner quotes.
+    const binPath = `"${nodePath}" "${scriptPath}"`;
+    execFileSync('sc.exe', [
+      'create', WINDOWS_SERVICE_NAME,
+      'binPath=', binPath,
+      'DisplayName=', WINDOWS_SERVICE_DISPLAY,
+      'start=', 'auto',
+    ], { stdio: 'pipe' });
+    execFileSync('sc.exe', ['description', WINDOWS_SERVICE_NAME, WINDOWS_SERVICE_DESCRIPTION], { stdio: 'pipe' });
+    // Auto-restart: restart 3× (delays 10 s / 10 s / 30 s), reset after 1 day
+    execFileSync('sc.exe', [
+      'failure', WINDOWS_SERVICE_NAME,
+      'reset=', '86400',
+      'actions=', 'restart/10000/restart/10000/restart/30000',
+    ], { stdio: 'pipe' });
+    execFileSync('sc.exe', ['start', WINDOWS_SERVICE_NAME], { stdio: 'pipe' });
+    return { installed: true, usedNssm: false };
+  } catch (err) {
+    return { installed: false, usedNssm: false, error: String(err) };
+  }
+}
+
+/** Stop and delete the Windows service. */
+export function uninstallWindowsService(): { uninstalled: boolean; error?: string } {
+  if (isNssmAvailable()) {
+    try {
+      tryExecFileIgnore('nssm', ['stop', WINDOWS_SERVICE_NAME]);
+      execFileSync('nssm', ['remove', WINDOWS_SERVICE_NAME, 'confirm'], { stdio: 'pipe' });
+      return { uninstalled: true };
+    } catch (err) {
+      return { uninstalled: false, error: String(err) };
+    }
+  }
+
+  try {
+    tryExecFileIgnore('sc.exe', ['stop', WINDOWS_SERVICE_NAME]);
+    execFileSync('sc.exe', ['delete', WINDOWS_SERVICE_NAME], { stdio: 'pipe' });
+    return { uninstalled: true };
+  } catch (err) {
+    return { uninstalled: false, error: String(err) };
+  }
+}
+
+/** Start the Windows service. */
+export function startWindowsService(): { started: boolean; error?: string } {
+  try {
+    execFileSync('sc.exe', ['start', WINDOWS_SERVICE_NAME], { stdio: 'pipe' });
+    return { started: true };
+  } catch (err) {
+    return { started: false, error: String(err) };
+  }
+}
+
+/** Stop the Windows service. */
+export function stopWindowsService(): { stopped: boolean; error?: string } {
+  try {
+    execFileSync('sc.exe', ['stop', WINDOWS_SERVICE_NAME], { stdio: 'pipe' });
+    return { stopped: true };
+  } catch (err) {
+    return { stopped: false, error: String(err) };
+  }
 }
