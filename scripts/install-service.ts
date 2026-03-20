@@ -18,6 +18,7 @@ import {
   generateLaunchdPlist, installLaunchd, getLaunchdInstallPath,
   generateSystemdUnit, getSystemdInstallPath,
   getLogPath, generateNewsyslogConfig, getNewsyslogInstallPath,
+  installWindowsService, isNssmAvailable, getWindowsLogPath,
 } from './lib/service.js';
 import { execSync } from 'node:child_process';
 
@@ -145,6 +146,44 @@ function main() {
       dim(`  sudo cp ${tmpPath} ${installPath}`);
       dim('  sudo systemctl daemon-reload');
       dim('  sudo systemctl enable --now copilot-bridge');
+      process.exit(1);
+    }
+
+  } else if (osPlatform === 'windows') {
+    info('Windows detected — installing Windows service.');
+    if (isNssmAvailable()) {
+      dim('Using NSSM for robust service management (auto-restart, log capture).\n');
+    } else {
+      dim('NSSM not found — falling back to sc.exe (basic mode).');
+      dim('For better auto-restart and log capture, install NSSM: https://nssm.cc/\n');
+    }
+
+    const distPath = path.join(bridgePath, 'dist', 'index.js');
+    if (!fs.existsSync(distPath)) {
+      fail(isCli
+        ? 'dist/index.js not found. Package may be corrupted — try reinstalling.'
+        : 'dist/index.js not found. Run "npm run build" first.');
+      process.exit(1);
+    }
+
+    const result = installWindowsService({ bridgePath, homePath });
+    if (result.installed) {
+      success(`Service installed and started (${result.usedNssm ? 'NSSM' : 'sc.exe'}).`);
+      blank();
+      const logPath = getWindowsLogPath(homePath);
+      dim('Management:');
+      dim('  copilot-bridge service-status    # status');
+      dim('  copilot-bridge service-start     # start');
+      dim('  copilot-bridge service-stop      # stop');
+      if (result.usedNssm) {
+        dim(`  Get-Content -Wait "${logPath}"      # logs (PowerShell)`);
+      } else {
+        dim('  sc.exe query CopilotBridge           # status (sc.exe)');
+      }
+    } else {
+      fail(`Install failed: ${result.error}`);
+      blank();
+      info('Make sure you are running this command as Administrator.');
       process.exit(1);
     }
 

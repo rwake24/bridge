@@ -11,7 +11,11 @@
 
 import * as fs from 'node:fs';
 import { heading, success, fail, info, dim, blank } from './lib/output.js';
-import { detectPlatform, getLaunchdInstallPath, getSystemdInstallPath } from './lib/service.js';
+import {
+  detectPlatform,
+  getLaunchdInstallPath, getSystemdInstallPath,
+  uninstallWindowsService,
+} from './lib/service.js';
 import { execSync } from 'node:child_process';
 
 function main() {
@@ -78,6 +82,29 @@ function main() {
       dim('  sudo systemctl disable copilot-bridge');
       dim(`  sudo rm ${unitPath}`);
       dim('  sudo systemctl daemon-reload');
+      process.exit(1);
+    }
+
+  } else if (osPlatform === 'windows') {
+    info('Windows detected — removing Windows service...');
+
+    const result = uninstallWindowsService();
+    if (result.uninstalled) {
+      blank();
+      success('Service uninstalled.');
+    } else {
+      // Service may simply not be installed
+      if (result.error && result.error.includes('does not exist')) {
+        info('No Windows service found — nothing to uninstall.');
+        return;
+      }
+      blank();
+      fail(`Uninstall failed: ${result.error}`);
+      blank();
+      info('Make sure you are running this command as Administrator.');
+      info('To uninstall manually (run as Administrator):');
+      dim('  sc.exe stop CopilotBridge');
+      dim('  sc.exe delete CopilotBridge');
       process.exit(1);
     }
 

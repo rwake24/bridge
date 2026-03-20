@@ -14,6 +14,9 @@ const commands = {
   check: join(root, 'scripts', 'check.ts'),
   'install-service': join(root, 'scripts', 'install-service.ts'),
   'uninstall-service': join(root, 'scripts', 'uninstall-service.ts'),
+  'service-start': join(root, 'scripts', 'start-service.ts'),
+  'service-stop': join(root, 'scripts', 'stop-service.ts'),
+  'service-status': join(root, 'scripts', 'service-status.ts'),
 };
 
 const command = process.argv[2];
@@ -27,8 +30,13 @@ Commands:
   init               Interactive setup wizard
   check              Validate configuration
   start              Start the bridge
-  install-service    Install as system service
+
+Service management:
+  install-service    Install as system service (macOS/Linux/Windows)
   uninstall-service  Remove system service
+  service-start      Start the installed service
+  service-stop       Stop the running service
+  service-status     Show service status
 
 Options:
   --help, -h         Show this help
