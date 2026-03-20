@@ -1,15 +1,16 @@
 #!/usr/bin/env npx tsx
 /**
- * copilot-bridge init — Interactive setup wizard.
+ * agent0 init — Interactive setup wizard.
  *
  * Usage: npm run init
  *        npx tsx scripts/init.ts
  */
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { heading, success, warn, fail, info, dim, blank, printCheck } from './lib/output.js';
-import { askRequired, askSecret, confirm, choose, pressEnter, closePrompts } from './lib/prompts.js';
+import { askRequired, askSecret, ask, confirm, choose, pressEnter, closePrompts } from './lib/prompts.js';
 import { runAllPrereqs, checkNodeVersion } from './lib/prerequisites.js';
 import { pingServer, validateBotToken, checkChannelAccess, getChannelInfo, getMyTeams, getChannelByTeamAndName, createMattermostChannel, addBotToChannel, AGENT0_CHANNELS, type MattermostBotInfo } from './lib/mattermost.js';
 import { buildConfig, writeConfig, configExists, getConfigPath, getConfigDir, readExistingConfig, mergeConfig, type BotEntry, type ChannelEntry, type ConfigDefaults } from './lib/config-gen.js';
@@ -37,11 +38,38 @@ async function promptAllowlist(botName: string): Promise<{ mode: 'allowlist'; us
   return { mode: 'allowlist', users };
 }
 
+/**
+ * Try to store a secret in the OS keychain via keytar.
+ * Returns true if stored successfully, false if keytar is unavailable.
+ */
+async function storeInKeychain(service: string, account: string, password: string): Promise<boolean> {
+  try {
+    const keytar = await import('keytar');
+    await keytar.setPassword(service, account, password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Try to read a secret from the OS keychain via keytar.
+ * Returns the secret or null if unavailable/not found.
+ */
+async function readFromKeychain(service: string, account: string): Promise<string | null> {
+  try {
+    const keytar = await import('keytar');
+    return await keytar.getPassword(service, account);
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
   console.log();
-  heading('🚀 copilot-bridge setup');
-  dim('Interactive wizard to configure copilot-bridge.\n');
+  heading('🚀 agent0 setup');
+  dim('Interactive wizard to configure agent0.\n');
 
   // --- Step 1: Prerequisites ---
   heading('Step 1: Prerequisites');
@@ -456,11 +484,40 @@ async function main() {
     }
   }
 
-  // --- Step 4: Defaults (skip in merge mode — existing config has them) ---
+  // --- Step 4: GitHub PAT (optional) ---
+  if (!mergeMode) {
+    heading('Step 4: GitHub Personal Access Token (Optional)');
+    info('A GitHub PAT allows agent0 to make authenticated GitHub API calls.');
+    dim('Scopes needed: repo, read:org (or adjust for your use case)\n');
+
+    const storePat = await confirm('Store a GitHub Personal Access Token now?', false);
+    if (storePat) {
+      const pat = await askSecret('GitHub PAT (ghp_... or github_pat_...)');
+      if (pat) {
+        // Try OS keychain first, fall back to file
+        const keychainOk = await storeInKeychain('agent0', 'github-pat', pat);
+        if (keychainOk) {
+          success('GitHub PAT stored in OS keychain (service: agent0, account: github-pat)');
+        } else {
+          // Fall back: write to a restricted file
+          const patFile = path.join(getConfigDir(), '.github-pat');
+          const dir = path.dirname(patFile);
+          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(patFile, pat, { mode: 0o600, encoding: 'utf-8' });
+          success(`GitHub PAT saved to ${patFile} (permissions: 600)`);
+          warn('keytar (OS keychain) not available — PAT stored in a file. Keep it secure.');
+        }
+      }
+    } else {
+      dim('Skipped — you can set GITHUB_TOKEN in your environment or run the wizard again.\n');
+    }
+  }
+
+  // --- Step 5: Defaults (skip in merge mode — existing config has them) ---
   const defaults: ConfigDefaults = {};
 
   if (!mergeMode) {
-    heading('Step 4: Defaults');
+    heading('Step 5: Defaults');
     dim('These can be changed later in config.json or via chat commands.\n');
 
     const modelChoice = await choose('Default model?', [
@@ -482,10 +539,97 @@ async function main() {
     defaults.triggerMode = triggerChoice === 0 ? 'mention' : 'all';
     defaults.threadedReplies = await confirm('Reply in threads by default?', true);
     defaults.verbose = await confirm('Verbose mode (show tool calls)?', false);
+
+    // Permission mode
+    blank();
+    info('Default permission mode — controls how agent0 handles tool use:');
+    dim('  interactive  — asks before each tool use (most secure, default)');
+    dim('  auto-approve — approves all tool calls automatically (personal/trusted setups)');
+    dim('  allowlist    — auto-approve only allowed tools, prompt for others');
+    dim('  You can change this later with /yolo or /autopilot in chat.\n');
+    const permChoice = await choose('Default permission mode?', [
+      'interactive (recommended) — prompt for each tool use',
+      'auto-approve — allow all tool calls automatically',
+      'allowlist — allow specific tools, prompt for others',
+    ]);
+    defaults.permissionMode = (['interactive', 'auto-approve', 'allowlist'] as const)[permChoice];
   }
 
-  // --- Step 5: Generate config ---
-  heading('Step 5: Generate Config');
+  // --- Step 6: MCP Servers (Optional) ---
+  heading('Step 6: MCP Servers (Optional)');
+  info('MCP (Model Context Protocol) servers extend agent0 with external tools and APIs.');
+
+  const mcpConfigPath = path.join(os.homedir(), '.copilot', 'mcp-config.json');
+  dim(`Configured servers are loaded from ${mcpConfigPath}\n`);
+  let mcpConfig: { mcpServers: Record<string, unknown> } = { mcpServers: {} };
+
+  if (fs.existsSync(mcpConfigPath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf-8'));
+      if (existing.mcpServers && typeof existing.mcpServers === 'object') {
+        mcpConfig = existing;
+        const serverNames = Object.keys(mcpConfig.mcpServers);
+        if (serverNames.length > 0) {
+          info(`Existing MCP servers: ${serverNames.join(', ')}`);
+        }
+      }
+    } catch {
+      warn('Could not read existing mcp-config.json — will create a new one if you add servers.');
+    }
+  }
+
+  const addMcp = await confirm('Configure MCP servers now?', false);
+  if (addMcp) {
+    let addingServers = true;
+    while (addingServers) {
+      const serverTypeChoice = await choose('Add MCP server:', [
+        'WorkIQ (pre-configured template)',
+        'Custom (enter command manually)',
+        'Done — no more servers',
+      ]);
+
+      if (serverTypeChoice === 2) {
+        addingServers = false;
+      } else if (serverTypeChoice === 0) {
+        // WorkIQ template
+        const workiqUrl = await ask('WorkIQ server URL', 'http://localhost:3000');
+        const workiqKey = await ask('WorkIQ API key (leave blank to skip)');
+        mcpConfig.mcpServers['workiq'] = {
+          command: 'npx',
+          args: ['-y', '@workiq/mcp-server', '--url', workiqUrl || 'http://localhost:3000'],
+          ...(workiqKey ? { env: { WORKIQ_API_KEY: workiqKey } } : {}),
+        };
+        success('Added WorkIQ MCP server');
+      } else {
+        // Custom server
+        const serverName = await askRequired('Server name (e.g., my-server)');
+        const command = await askRequired('Command (e.g., npx, python, /usr/local/bin/server)');
+        const argsRaw = await ask('Arguments (space-separated, no quoting; leave blank for none)');
+        const args = argsRaw ? argsRaw.trim().split(/\s+/) : [];
+        mcpConfig.mcpServers[serverName] = {
+          command,
+          ...(args.length > 0 ? { args } : {}),
+        };
+        success(`Added MCP server "${serverName}"`);
+      }
+
+      if (addingServers) {
+        addingServers = await confirm('Add another MCP server?', false);
+      }
+    }
+
+    if (Object.keys(mcpConfig.mcpServers).length > 0) {
+      const copilotDir = path.join(os.homedir(), '.copilot');
+      if (!fs.existsSync(copilotDir)) fs.mkdirSync(copilotDir, { recursive: true });
+      fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8');
+      success(`MCP config written to ${mcpConfigPath}`);
+    }
+  } else {
+    dim('Skipped — add MCP servers later by editing ~/.copilot/mcp-config.json\n');
+  }
+
+  // --- Step 7: Generate config ---
+  heading('Step 7: Generate Config');
 
   let finalConfig = buildConfig({ mmUrl: mmUrl || undefined, bots, channels, defaults, slackBots });
 
@@ -507,21 +651,21 @@ async function main() {
     fs.mkdirSync(workspacesDir, { recursive: true });
   }
 
-  // --- Step 6: Service Setup (Optional) ---
-  heading('Step 6: Service Setup (Optional)');
+  // --- Step 8: Service Setup (Optional) ---
+  heading('Step 8: Service Setup (Optional)');
 
   const osPlatform = detectPlatform();
   if (osPlatform === 'macos') {
     info('To run as a launchd service (auto-start at login):');
-    dim(isCli ? '  copilot-bridge install-service\n' : '  npm run install-service\n');
+    dim(isCli ? '  agent0 install-service\n' : '  npm run install-service\n');
   } else if (osPlatform === 'linux') {
     info('To run as a systemd service (auto-start at boot):');
-    dim(isCli ? '  copilot-bridge install-service' : '  npm run install-service');
+    dim(isCli ? '  agent0 install-service' : '  npm run install-service');
     dim('  (requires sudo — installs to /etc/systemd/system/)\n');
     if (!isCli) dim('  Note: build first with npm run build\n');
   } else {
     info(isCli
-      ? 'Run the bridge manually: copilot-bridge start'
+      ? 'Run the bridge manually: agent0 start'
       : 'Run the bridge manually: npm run dev (development) or npm start (production)');
   }
 
@@ -540,9 +684,9 @@ async function main() {
   const showNextSteps = () => {
     dim('Next steps:');
     if (isCli) {
-      dim('  copilot-bridge check            Validate your setup');
-      dim('  copilot-bridge start            Start the bridge');
-      dim('  copilot-bridge install-service  Install as a system service');
+      dim('  agent0 check            Validate your setup');
+      dim('  agent0 start            Start the bridge');
+      dim('  agent0 install-service  Install as a system service');
     } else {
       dim('  npm run dev              Start in development mode (watch)');
       dim('  npm run check            Validate your setup');

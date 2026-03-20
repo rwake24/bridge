@@ -71,6 +71,36 @@ describe('config-gen', () => {
       expect(config.defaults?.verbose).toBe(true);
     });
 
+    it('stores interactive permissionMode as-is', () => {
+      const config = buildConfig({
+        mmUrl: 'https://mm.test',
+        bots: [{ name: 'bot', token: 'tok', admin: false }],
+        channels: [],
+        defaults: { permissionMode: 'interactive' },
+      });
+      expect(config.defaults?.permissionMode).toBe('interactive');
+    });
+
+    it('maps auto-approve permissionMode to autopilot', () => {
+      const config = buildConfig({
+        mmUrl: 'https://mm.test',
+        bots: [{ name: 'bot', token: 'tok', admin: false }],
+        channels: [],
+        defaults: { permissionMode: 'auto-approve' },
+      });
+      expect(config.defaults?.permissionMode).toBe('autopilot');
+    });
+
+    it('stores allowlist permissionMode as-is', () => {
+      const config = buildConfig({
+        mmUrl: 'https://mm.test',
+        bots: [{ name: 'bot', token: 'tok', admin: false }],
+        channels: [],
+        defaults: { permissionMode: 'allowlist' },
+      });
+      expect(config.defaults?.permissionMode).toBe('allowlist');
+    });
+
     it('omits empty defaults', () => {
       const config = buildConfig({
         mmUrl: 'https://mm.test',
@@ -122,12 +152,27 @@ describe('config-gen', () => {
   });
 
   describe('paths', () => {
-    it('returns config dir under home', () => {
-      expect(getConfigDir()).toBe(path.join(os.homedir(), '.copilot-bridge'));
+    it('returns config dir under home with .agent0 default', () => {
+      expect(getConfigDir()).toBe(path.join(os.homedir(), '.agent0'));
     });
 
     it('returns config path as config.json', () => {
-      expect(getConfigPath()).toBe(path.join(os.homedir(), '.copilot-bridge', 'config.json'));
+      expect(getConfigPath()).toBe(path.join(os.homedir(), '.agent0', 'config.json'));
+    });
+
+    it('respects AGENT0_HOME env var', () => {
+      const original = process.env.AGENT0_HOME;
+      try {
+        process.env.AGENT0_HOME = '/custom/agent0/home';
+        expect(getConfigDir()).toBe('/custom/agent0/home');
+        expect(getConfigPath()).toBe('/custom/agent0/home/config.json');
+      } finally {
+        if (original === undefined) {
+          delete process.env.AGENT0_HOME;
+        } else {
+          process.env.AGENT0_HOME = original;
+        }
+      }
     });
   });
 });
