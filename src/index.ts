@@ -8,7 +8,7 @@ import { MattermostAdapter } from './channels/mattermost/adapter.js';
 import { StreamingHandler } from './channels/mattermost/streaming.js';
 import { getChannelPrefs, setChannelPrefs, getAllChannelSessions, closeDb, listPermissionRulesForScope, removePermissionRule, clearPermissionRules, getTaskHistory } from './state/store.js';
 import { extractThreadRequest, resolveThreadRoot } from './core/thread-utils.js';
-import { initScheduler, loadConfigJobs, stopAll as stopScheduler, listJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
+import { initScheduler, loadConfigJobs, stopAll as stopScheduler, listJobs, listAllJobs, removeJob, pauseJob, resumeJob, formatInTimezone, describeCron } from './core/scheduler.js';
 import { markBusy, markIdle, markIdleImmediate, isBusy, waitForChannelIdle, cancelIdleDebounce } from './core/channel-idle.js';
 import { LoopDetector, MAX_IDENTICAL_CALLS } from './core/loop-detector.js';
 import { checkUserAccess } from './core/access-control.js';
@@ -1150,6 +1150,36 @@ async function handleInboundMessage(
             });
             await adapter.sendMessage(msg.channelId, `📋 **Scheduled Tasks**\n\n${lines.join('\n\n')}`, { threadRootId: threadRoot });
           }
+        } else if (sub === 'list-all') {
+          const tasks = listAllJobs();
+          if (tasks.length === 0) {
+            await adapter.sendMessage(msg.channelId, '📋 No scheduled tasks found across any channel.', { threadRootId: threadRoot });
+          } else {
+            // Group tasks by channelId
+            const grouped = new Map<string, typeof tasks>();
+            for (const t of tasks) {
+              const group = grouped.get(t.channelId) ?? [];
+              group.push(t);
+              grouped.set(t.channelId, group);
+            }
+            const sections: string[] = [];
+            for (const [channelId, channelTasks] of grouped) {
+              const taskLines = channelTasks.map(t => {
+                const tz = t.timezone ?? 'UTC';
+                const type = t.cronExpr ? describeCron(t.cronExpr) : 'one-off';
+                const status = t.enabled ? '✅' : '⏸️';
+                const desc = t.description ?? t.prompt.slice(0, 50);
+                const next = t.nextRun ? formatInTimezone(t.nextRun, tz) : undefined;
+                const lastRan = t.lastRun ? formatInTimezone(t.lastRun, tz) : undefined;
+                let detail = `${status} **${desc}** — ${type}\n   ID: \`${t.id}\``;
+                if (next) detail += ` | Next: ${next}`;
+                if (lastRan) detail += ` | Last: ${lastRan}`;
+                return detail;
+              });
+              sections.push(`**Channel: \`${channelId}\`**\n\n${taskLines.join('\n\n')}`);
+            }
+            await adapter.sendMessage(msg.channelId, `📋 **All Scheduled Tasks** (${tasks.length} total)\n\n${sections.join('\n\n---\n\n')}`, { threadRootId: threadRoot });
+          }
         } else if (sub === 'enable') {
           if (!subArg) {
             await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule enable <id>`', { threadRootId: threadRoot });
@@ -1200,7 +1230,7 @@ async function handleInboundMessage(
             await adapter.sendMessage(msg.channelId, `📋 **Task History** (last ${entries.length})\n${lines.join('\n')}`, { threadRootId: threadRoot });
           }
         } else {
-          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|enable|disable|cancel|pause|resume|history] [id]`', { threadRootId: threadRoot });
+          await adapter.sendMessage(msg.channelId, '⚠️ Usage: `/schedule [list|list-all|enable|disable|cancel|pause|resume|history] [id]`', { threadRootId: threadRoot });
         }
         break;
       }

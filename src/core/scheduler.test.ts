@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { JOB_PROMPTS, loadConfigJobs, describeCron, formatInTimezone } from './scheduler.js';
+import { JOB_PROMPTS, loadConfigJobs, describeCron, formatInTimezone, listAllJobs } from './scheduler.js';
 
 // ---------------------------------------------------------------------------
 // JOB_PROMPTS
@@ -115,5 +115,25 @@ describe('loadConfigJobs', () => {
         },
       ])
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listAllJobs — returns an array without throwing
+// ---------------------------------------------------------------------------
+
+describe('listAllJobs', () => {
+  it('returns an array without throwing', () => {
+    const result = listAllJobs();
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it('every returned task has channelId, id, and enabled fields', () => {
+    const result = listAllJobs();
+    for (const task of result) {
+      expect(typeof task.id).toBe('string');
+      expect(typeof task.channelId).toBe('string');
+      expect(typeof task.enabled).toBe('boolean');
+    }
   });
 });
