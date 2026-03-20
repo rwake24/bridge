@@ -494,3 +494,21 @@ describe('/skills command', () => {
     expect(result.payload).toEqual({ action: 'disable', targets: ['humanizer'] });
   });
 });
+
+// --- /approve and /deny commands ---
+
+describe('/approve and /deny commands', () => {
+  it('/approve returns approve action with confirmation response', () => {
+    const result = handleCommand('ch-approve-1', '/approve');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('approve');
+    expect(result.response).toContain('Approved');
+  });
+
+  it('/deny returns deny action with confirmation response', () => {
+    const result = handleCommand('ch-deny-1', '/deny');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('deny');
+    expect(result.response).toContain('Denied');
+  });
+});
