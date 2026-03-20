@@ -1,4 +1,4 @@
-# AGENTS.md — copilot-bridge
+# AGENTS.md — Bridge
 
 **Repo**: https://github.com/ChrisRomp/copilot-bridge
 
@@ -20,7 +20,7 @@ npx vitest run src/path/to/file.test.ts       # single test file
 Restart the running service after changes:
 ```bash
 scripts/restart-gateway.sh
-# Or: launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
+# Or: launchctl kickstart -k gui/$(id -u)/com.bridge
 ```
 
 > **⚠️ NEVER use `launchctl unload && launchctl load`** — `unload` kills the bridge process (including your session), so the `load` half never executes and the service stays down.
@@ -109,7 +109,7 @@ Use `createLogger(tag)` from `src/logger.ts`. Tags identify the subsystem (e.g.,
 
 ### State Persistence
 
-SQLite database at `~/.copilot-bridge/state.db` via `src/state/store.ts`. Uses WAL mode. Stores channel sessions, preferences, and permission rules.
+SQLite database at `~/.bridge/state.db` via `src/state/store.ts`. Uses WAL mode. Stores channel sessions, preferences, and permission rules.
 
 ### Filing Issues
 

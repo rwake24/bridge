@@ -1,6 +1,6 @@
 /**
  * Config file generator. Collects structured input and writes
- * ~/.copilot-bridge/config.json.
+ * ~/.bridge/config.json.
  */
 
 import * as fs from 'node:fs';

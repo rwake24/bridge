@@ -75,7 +75,7 @@ Optional methods:
 
 ## Persistence
 
-SQLite database at `~/.copilot-bridge/state.db` (WAL mode) via `src/state/store.ts`:
+SQLite database at `~/.bridge/state.db` (WAL mode) via `src/state/store.ts`:
 
 - **channel_sessions** — Maps channels to active Copilot session IDs
 - **channel_prefs** — Per-channel preferences (model, agent, verbose, trigger mode, reasoning effort, etc.)
@@ -98,33 +98,33 @@ HH:mm:ss.SSS [LEVEL] [tag] message
 Use `createLogger(tag)` from `src/logger.ts`. Tags identify the subsystem (e.g., `bridge`, `session`, `mattermost`, `streaming`).
 
 The log *destination* depends on how you launch the bridge:
-- **launchd**: Configured via `StandardOutPath`/`StandardErrorPath` in the plist (default: `~/.copilot-bridge/copilot-bridge.log`)
+- **launchd**: Configured via `StandardOutPath`/`StandardErrorPath` in the plist (default: `~/.bridge/bridge.log`)
 - **Direct**: Logs go to your terminal
-- **Redirect**: `umask 077 && npx tsx src/index.ts >> ~/.copilot-bridge/copilot-bridge.log 2>&1`
+- **Redirect**: `umask 077 && npx tsx src/index.ts >> ~/.bridge/bridge.log 2>&1`
 
 ## Running as a macOS service
 
 > **Note**: The launchd service setup below is macOS-specific. On Linux, use systemd; see the plist as a reference for the equivalent unit file.
 
-A reference launchd plist is at `scripts/com.copilot-bridge.plist`. To install:
+A reference launchd plist is at `scripts/com.bridge.plist`. To install:
 
 ```bash
 # Edit the plist — replace USERNAME with your macOS username
-cp scripts/com.copilot-bridge.plist ~/Library/LaunchAgents/
+cp scripts/com.bridge.plist ~/Library/LaunchAgents/
 # Adjust WorkingDirectory, HOME, StandardOutPath as needed
 
 # Load and start
-launchctl load ~/Library/LaunchAgents/com.copilot-bridge.plist
+launchctl load ~/Library/LaunchAgents/com.bridge.plist
 
 # Restart (preferred — doesn't unload the service)
 ./scripts/restart-gateway.sh
 
 # Or manually:
-launchctl kickstart -k gui/$(id -u)/com.copilot-bridge
+launchctl kickstart -k gui/$(id -u)/com.bridge
 
 # Stop and unload (⚠️ if the admin bot runs this, the gateway won't restart —
 # the bot's own session dies with it. Only run manually from a terminal.)
-launchctl unload ~/Library/LaunchAgents/com.copilot-bridge.plist
+launchctl unload ~/Library/LaunchAgents/com.bridge.plist
 ```
 
 Key plist settings:

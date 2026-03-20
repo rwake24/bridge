@@ -22,9 +22,9 @@ const commands = {
 const command = process.argv[2];
 
 if (!command || command === '--help' || command === '-h') {
-  console.log(`copilot-bridge — Mattermost ↔ GitHub Copilot bridge
+  console.log(`bridge — Mattermost ↔ GitHub Copilot bridge
 
-Usage: copilot-bridge <command>
+Usage: bridge <command>
 
 Commands:
   init               Interactive setup wizard
@@ -52,7 +52,7 @@ if (command === '--version' || command === '-v') {
 
 const script = commands[command];
 if (!script) {
-  console.error(`Unknown command: ${command}\nRun 'copilot-bridge --help' for usage.`);
+  console.error(`Unknown command: ${command}\nRun 'bridge --help' for usage.`);
   process.exit(1);
 }
 
@@ -60,7 +60,7 @@ if (!script) {
 const child = spawn(process.execPath, ['--import', 'tsx/esm', script, ...process.argv.slice(3)], {
   stdio: 'inherit',
   cwd: root,
-  env: { ...process.env, COPILOT_BRIDGE_CLI: '1' },
+  env: { ...process.env, BRIDGE_CLI: '1' },
 });
 
 child.on('exit', (code) => process.exit(code ?? 1));

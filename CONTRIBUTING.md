@@ -1,4 +1,4 @@
-# Contributing to copilot-bridge
+# Contributing to Bridge
 
 First off, thank you for considering contributing! This project bridges GitHub Copilot CLI to messaging platforms, and community contributions help it reach more people and platforms.
 

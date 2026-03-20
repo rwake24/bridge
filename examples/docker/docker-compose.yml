@@ -1,6 +1,6 @@
 # Mattermost + PostgreSQL + Cloudflare Tunnel
 #
-# This sets up the infrastructure that copilot-bridge connects to:
+# This sets up the infrastructure that Bridge connects to:
 #   - Mattermost (team chat)
 #   - PostgreSQL (Mattermost database)
 #   - Cloudflare Tunnel (optional, for public HTTPS access without port forwarding)
@@ -10,10 +10,10 @@
 #   2. docker compose up -d
 #   3. Open http://localhost:${MATTERMOST_PORT} (or your tunnel URL) to create an admin account
 #   4. Create a bot account in System Console → Integrations → Bot Accounts
-#   5. Configure copilot-bridge with the bot token
+#   5. Configure Bridge with the bot token
 #
 # The bridge itself runs on the host (not in Docker) — it connects to
-# Mattermost via the URL in your copilot-bridge config.json.
+# Mattermost via the URL in your Bridge config.json.
 
 services:
   postgres:
@@ -47,7 +47,7 @@ services:
       # Site URL — set to your tunnel domain or localhost
       MM_SERVICESETTINGS_SITEURL: ${MM_SITEURL:-http://localhost:8065}
 
-      # Bot accounts (required for copilot-bridge)
+      # Bot accounts (required for Bridge)
       MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
       MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
 

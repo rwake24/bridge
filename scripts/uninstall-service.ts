@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * copilot-bridge uninstall-service — Remove the bridge system service.
+ * bridge uninstall-service — Remove the bridge system service.
  *
  * macOS: unloads and removes the launchd plist
  * Linux: stops, disables, and removes the systemd unit (requires sudo)
@@ -21,7 +21,7 @@ import { execSync } from 'node:child_process';
 function main() {
   const osPlatform = detectPlatform();
 
-  heading('🗑️  copilot-bridge service uninstaller');
+  heading('🗑️  Bridge service uninstaller');
   blank();
 
   if (osPlatform === 'macos') {
@@ -67,8 +67,8 @@ function main() {
     }
 
     try {
-      execSync('sudo systemctl stop copilot-bridge 2>/dev/null || true', { stdio: 'inherit' });
-      execSync('sudo systemctl disable copilot-bridge 2>/dev/null || true', { stdio: 'inherit' });
+      execSync('sudo systemctl stop bridge 2>/dev/null || true', { stdio: 'inherit' });
+      execSync('sudo systemctl disable bridge 2>/dev/null || true', { stdio: 'inherit' });
       execSync(`sudo rm "${unitPath}"`, { stdio: 'inherit' });
       execSync('sudo systemctl daemon-reload', { stdio: 'inherit' });
       blank();
@@ -78,8 +78,8 @@ function main() {
       fail('Automatic uninstall failed (sudo may have been denied).');
       blank();
       info('To uninstall manually:');
-      dim('  sudo systemctl stop copilot-bridge');
-      dim('  sudo systemctl disable copilot-bridge');
+      dim('  sudo systemctl stop bridge');
+      dim('  sudo systemctl disable bridge');
       dim(`  sudo rm ${unitPath}`);
       dim('  sudo systemctl daemon-reload');
       process.exit(1);
@@ -103,8 +103,8 @@ function main() {
       blank();
       info('Make sure you are running this command as Administrator.');
       info('To uninstall manually (run as Administrator):');
-      dim('  sc.exe stop CopilotBridge');
-      dim('  sc.exe delete CopilotBridge');
+      dim('  sc.exe stop Bridge');
+      dim('  sc.exe delete Bridge');
       process.exit(1);
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * copilot-bridge check — Validate an existing installation.
+ * bridge check — Validate an existing installation.
  *
  * Usage: npm run check
  *        npx tsx scripts/check.ts
@@ -16,9 +16,9 @@ import { getConfigPath, getConfigDir } from './lib/config-gen.js';
 import { detectPlatform, getServiceStatus, getLogPath, getNewsyslogInstallPath } from './lib/service.js';
 
 async function main() {
-  const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
+  const isCli = process.env.BRIDGE_CLI === '1';
   console.log();
-  heading('🔍 copilot-bridge check');
+  heading('🔍 Bridge check');
   dim('Validating your installation...\n');
 
   const results: CheckResult[] = [];
@@ -40,7 +40,7 @@ async function main() {
     printCheck(result);
     results.push(result);
     info(isCli
-      ? 'Run "copilot-bridge init" to create a config file.'
+      ? 'Run "bridge init" to create a config file.'
       : 'Run "npm run init" to create a config file.');
     printSummary(results);
     process.exit(results.some(r => r.status === 'fail') ? 1 : 0);
@@ -230,10 +230,10 @@ async function main() {
   } else {
     const platform = detectPlatform();
     const serviceHint = platform === 'macos'
-      ? `install with: ${isCli ? 'copilot-bridge install-service' : 'npm run install-service'}`
+      ? `install with: ${isCli ? 'bridge install-service' : 'npm run install-service'}`
       : platform === 'linux'
-        ? `install with: ${isCli ? 'copilot-bridge install-service' : 'npm run install-service'} (requires sudo)`
-        : `start with: ${isCli ? 'copilot-bridge start' : 'npm run dev (or npm start)'}`;
+        ? `install with: ${isCli ? 'bridge install-service' : 'npm run install-service'} (requires sudo)`
+        : `start with: ${isCli ? 'bridge start' : 'npm run dev (or npm start)'}`;
     const result: CheckResult = { status: 'warn', label: 'Service not running', detail: serviceHint };
     printCheck(result);
     results.push(result);
@@ -278,7 +278,7 @@ async function main() {
       results.push(result);
     }
     // Migration warning: old log path
-    const oldLogPath = '/tmp/copilot-bridge.log';
+    const oldLogPath = '/tmp/bridge.log';
     if (fs.existsSync(oldLogPath)) {
       const oldStats = fs.statSync(oldLogPath);
       const oldSizeMb = (oldStats.size / (1024 * 1024)).toFixed(1);

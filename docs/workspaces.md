@@ -2,12 +2,12 @@
 
 ## Workspaces
 
-Each bot gets a workspace directory at `~/.copilot-bridge/workspaces/<botname>/`. This is the default working directory for DM conversations with that bot.
+Each bot gets a workspace directory at `~/.bridge/workspaces/<botname>/`. This is the default working directory for DM conversations with that bot.
 
 Workspaces are auto-created when the bridge starts and detects a bot without one. They contain:
 
 ```
-~/.copilot-bridge/workspaces/agent-name/
+~/.bridge/workspaces/agent-name/
 ├── AGENTS.md        # Agent instructions (auto-generated from template, customizable)
 ├── MEMORY.md        # Persistent memory across sessions (managed by the agent)
 ├── mcp-config.json  # Workspace-specific MCP servers (optional, overrides global)
@@ -30,9 +30,9 @@ templates/
     └── AGENTS.md    # Template for non-admin bots
 ```
 
-On startup, the bridge copies these to `~/.copilot-bridge/templates/` (mtime-based sync — newer source overwrites destination). When a new workspace is created, its `AGENTS.md` is rendered from the appropriate template with variables like `{{botName}}`, `{{workspacePath}}`, and `{{adminBotName}}` filled in.
+On startup, the bridge copies these to `~/.bridge/templates/` (mtime-based sync — newer source overwrites destination). When a new workspace is created, its `AGENTS.md` is rendered from the appropriate template with variables like `{{botName}}`, `{{workspacePath}}`, and `{{adminBotName}}` filled in.
 
-You can customize the deployed templates at `~/.copilot-bridge/templates/` without modifying the repo. Your edits won't be overwritten unless the repo template is newer.
+You can customize the deployed templates at `~/.bridge/templates/` without modifying the repo. Your edits won't be overwritten unless the repo template is newer.
 
 ### Admin vs non-admin agents
 
@@ -44,7 +44,7 @@ You can customize the deployed templates at `~/.copilot-bridge/templates/` witho
 Each workspace can have a `.env` file that's loaded into the agent's shell environment at session start:
 
 ```bash
-# ~/.copilot-bridge/workspaces/alice/.env
+# ~/.bridge/workspaces/alice/.env
 APP_TOKEN=secret-value-here
 APP_URL=https://my-app.local
 ```
@@ -172,17 +172,17 @@ You can also do this manually — see the admin template (`templates/admin/AGENT
 
 ### Where are the logs?
 
-MCP server output goes through the Copilot CLI subprocess stderr, which is written to `~/.copilot-bridge/copilot-bridge.log` (configured in the launchd plist):
+MCP server output goes through the Copilot CLI subprocess stderr, which is written to `~/.bridge/bridge.log` (configured in the launchd plist):
 
 ```bash
 # CLI subprocess stderr (includes MCP startup errors)
-grep 'CLI subprocess' ~/.copilot-bridge/copilot-bridge.log | tail -20
+grep 'CLI subprocess' ~/.bridge/bridge.log | tail -20
 
 # MCP loading messages from the bridge
-grep 'MCP' ~/.copilot-bridge/copilot-bridge.log | tail -20
+grep 'MCP' ~/.bridge/bridge.log | tail -20
 
 # General errors
-grep -i 'error\|fail' ~/.copilot-bridge/copilot-bridge.log | tail -20
+grep -i 'error\|fail' ~/.bridge/bridge.log | tail -20
 ```
 
 Bots can access this log file since it's in a readable path. Ask the bot to run these grep commands for self-diagnosis.
@@ -193,9 +193,9 @@ Common causes:
 
 1. **Missing env vars** — The MCP server starts but can't connect to its backend, so it reports zero tools. Check that the workspace `.env` has the required vars. After fixing, tell the bot `/reload`.
 
-2. **Server crash on startup** — Look for errors in the log: `grep 'CLI subprocess' ~/.copilot-bridge/copilot-bridge.log | grep -i error`. Test the server manually:
+2. **Server crash on startup** — Look for errors in the log: `grep 'CLI subprocess' ~/.bridge/bridge.log | grep -i error`. Test the server manually:
    ```bash
-   cd ~/.copilot-bridge/workspaces/<bot>/
+   cd ~/.bridge/workspaces/<bot>/
    source .env
    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}' | <mcp-command> <mcp-args>
    ```

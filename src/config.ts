@@ -228,11 +228,11 @@ export function loadConfig(configPath?: string): AppConfig {
     : path.join(os.homedir(), '.agent0');
 
   const filePath = configPath
-    ?? process.env.COPILOT_BRIDGE_CONFIG
+    ?? process.env.BRIDGE_CONFIG
     ?? (fs.existsSync(path.join(agentHome, 'config.json'))
         ? path.join(agentHome, 'config.json')
-        : fs.existsSync(path.join(os.homedir(), '.copilot-bridge', 'config.json'))
-          ? path.join(os.homedir(), '.copilot-bridge', 'config.json')
+        : fs.existsSync(path.join(os.homedir(), '.bridge', 'config.json'))
+          ? path.join(os.homedir(), '.bridge', 'config.json')
           : path.join(process.cwd(), 'config.json'));
 
   if (!fs.existsSync(filePath)) {

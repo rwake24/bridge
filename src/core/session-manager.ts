@@ -1814,7 +1814,7 @@ export class SessionManager {
             bot_name: { type: 'string', description: 'Bot to assign (e.g., "copilot", "bob"). Must be a configured bot name.' },
             team_id: { type: 'string', description: 'Mattermost team ID (from get_platform_info).' },
             private: { type: 'boolean', description: 'Create a private channel. Ask the user: private or public?' },
-            workspace_path: { type: 'string', description: 'Workspace directory path. Ask the user — default is ~/.copilot-bridge/workspaces/<project-slug>/.' },
+            workspace_path: { type: 'string', description: 'Workspace directory path. Ask the user — default is ~/.bridge/workspaces/<project-slug>/.' },
             repo_url: { type: 'string', description: 'Git repository URL to clone into the workspace. Optional — skip for new projects.' },
             user_id: { type: 'string', description: 'Mattermost user ID of the requesting user, to add them to the channel.' },
             trigger_mode: { type: 'string', enum: ['all', 'mention'], description: 'How the bot responds. Ask the user: "all" (every message) or "mention" (only when @mentioned).' },
@@ -1889,7 +1889,7 @@ export class SessionManager {
             // Block sensitive paths (bidirectional: parent-of or child-of blocked)
             const home = os.homedir();
             const blocked = [home, path.join(home, '.ssh'), path.join(home, '.aws'), path.join(home, '.gnupg'),
-              path.join(home, '.copilot-bridge'), '/etc', '/var', '/usr', '/System', '/private'];
+              path.join(home, '.bridge'), '/etc', '/var', '/usr', '/System', '/private'];
             if (resolvedPath === '/') {
               return { content: '❌ Refused: cannot grant access to filesystem root.' };
             }

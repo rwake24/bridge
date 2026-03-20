@@ -1,9 +1,9 @@
 # Configuration
 
-copilot-bridge is configured via a JSON file. The bridge checks these locations in order:
+Bridge is configured via a JSON file. The bridge checks these locations in order:
 
-1. `$COPILOT_BRIDGE_CONFIG` environment variable
-2. `~/.copilot-bridge/config.json`
+1. `$BRIDGE_CONFIG` environment variable
+2. `~/.bridge/config.json`
 3. `./config.json` (current working directory)
 
 See [`config.sample.json`](../config.sample.json) for the full format.
@@ -126,7 +126,7 @@ Access is **additive** across levels:
 
 This means platform allowlist users inherit access to every bot, while bot-level allowlists can grant additional users for specific bots.
 
-> ⚠️ **Breaking change (v0.8.0):** Previously, missing `access` defaulted to open. Now, if no `access` block exists at either level, all users are denied. Add `"access": { "mode": "open" }` at the platform or bot level to restore the previous behavior, or run `copilot-bridge init` to configure access during setup.
+> ⚠️ **Breaking change (v0.8.0):** Previously, missing `access` defaulted to open. Now, if no `access` block exists at either level, all users are denied. Add `"access": { "mode": "open" }` at the platform or bot level to restore the previous behavior, or run `bridge init` to configure access during setup.
 
 ### User identification
 
@@ -183,7 +183,7 @@ Channel entries map a specific Mattermost channel to a bot, working directory, a
 
 ### When do you need a channel entry?
 
-**You don't need one for DMs.** The bridge auto-discovers DM channels for each bot at startup. DMs default to `triggerMode: "all"`, `threadedReplies: false`, and the bot's default workspace (`~/.copilot-bridge/workspaces/<botname>/`).
+**You don't need one for DMs.** The bridge auto-discovers DM channels for each bot at startup. DMs default to `triggerMode: "all"`, `threadedReplies: false`, and the bot's default workspace (`~/.bridge/workspaces/<botname>/`).
 
 **You need a channel entry when:**
 - You want to point a DM at a custom `workingDirectory` (overriding the default workspace)
@@ -318,8 +318,8 @@ The `ask_agent` tool allows bots to communicate with each other. When enabled, a
 
 Place `*.agent.md` files in a bot's workspace `agents/` directory:
 ```
-~/.copilot-bridge/workspaces/alice/agents/network.agent.md
-~/.copilot-bridge/workspaces/alice/agents/hvac.agent.md
+~/.bridge/workspaces/alice/agents/network.agent.md
+~/.bridge/workspaces/alice/agents/hvac.agent.md
 ```
 
 Call with `ask_agent({ target: "alice", agent: "network", message: "..." })` to activate a specific persona.

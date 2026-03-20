@@ -1,7 +1,7 @@
-# copilot-bridge
+# Bridge
 
 <div align="center">
-<img src="docs/images/copilot-bridge.png" alt="Copilot Bridge" width="200" height="200">
+<img src="docs/images/copilot-bridge.png" alt="Bridge" width="200" height="200">
 </div>
 
 Bridge GitHub Copilot CLI to messaging platforms. Send messages from Mattermost (or other platforms) and get responses from Copilot sessions running on your machine.
@@ -10,14 +10,14 @@ Bridge GitHub Copilot CLI to messaging platforms. Send messages from Mattermost 
 > This is all experimental.
 
 ```
-Mattermost Channel → copilot-bridge → @github/copilot-sdk → Copilot CLI
+Mattermost Channel → Bridge → @github/copilot-sdk → Copilot CLI
      ↑                                                          ↓
      └──────────── streaming response (edit-in-place) ←─────────┘
 ```
 
 ## Screenshots
 
-![Copilot Bridge in Mattermost Desktop](docs/images/copilot-bridge-mattermost-desktop.png)
+![Bridge in Mattermost Desktop](docs/images/copilot-bridge-mattermost-desktop.png)
 
 More screenshots [here](docs/screenshots.md).
 
@@ -48,9 +48,9 @@ More screenshots [here](docs/screenshots.md).
 
 1. **Prerequisites**: Node.js 20+, GitHub Copilot CLI installed and authenticated
 2. **Install** (pick one):
-   - **npm**: `npm install -g @chrisromp/copilot-bridge`
+   - **npm**: `npm install -g bridge`
    - **From source**: `git clone https://github.com/ChrisRomp/copilot-bridge.git && cd copilot-bridge && npm install`
-3. **Configure**: `agent0 init` (or `copilot-bridge init` / `npm run init` from source) — interactive wizard
+3. **Configure**: `agent0 init` (or `bridge init` / `npm run init` from source) — interactive wizard
 4. **Validate**: `agent0 check` (or `npm run check`)
 5. **Run**: `agent0 start` (or `npm run dev` for development with watch mode)
 

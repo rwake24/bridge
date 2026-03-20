@@ -1,7 +1,7 @@
 {
-  "name": "@chrisromp/copilot-bridge",
+  "name": "bridge",
   "version": "0.9.2",
-  "description": "Mattermost ↔ GitHub Copilot bridge",
+  "description": "Bridge — GitHub Copilot to Mattermost with SE workflow automation",
   "type": "module",
   "main": "dist/index.js",
   "repository": {
@@ -9,7 +9,7 @@
     "url": "https://github.com/ChrisRomp/copilot-bridge.git"
   },
   "bin": {
-    "copilot-bridge": "bin/copilot-bridge.js",
+    "bridge": "bin/bridge.js",
     "agent0": "bin/agent0.js"
   },
   "files": [
@@ -19,8 +19,8 @@
     "scripts/lib/*.ts",
     "!scripts/**/*.test.ts",
     "!scripts/test-admin-api.ts",
-    "scripts/com.copilot-bridge.plist",
-    "scripts/copilot-bridge.service",
+    "scripts/com.bridge.plist",
+    "scripts/bridge.service",
     "templates/",
     "config.sample.json"
   ],

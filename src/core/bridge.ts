@@ -77,7 +77,7 @@ export class CopilotBridge {
   }): Promise<CopilotSession> {
     await this.start();
     const session = await this.client.createSession({
-      clientName: 'copilot-bridge',
+      clientName: 'bridge',
       model: opts.model,
       workingDirectory: opts.workingDirectory,
       configDir: opts.configDir,
@@ -121,7 +121,7 @@ export class CopilotBridge {
     if (existing) return existing;
 
     const session = await this.client.resumeSession(sessionId, {
-      clientName: 'copilot-bridge',
+      clientName: 'bridge',
       onPermissionRequest: opts?.onPermissionRequest ?? approveAll,
       onUserInputRequest: opts?.onUserInputRequest,
       streaming: true,
