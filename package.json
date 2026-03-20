@@ -46,6 +46,7 @@
     "@github/copilot-sdk": "^0.1.32",
     "@mattermost/client": "^10.3.0",
     "@mattermost/types": "^10.3.0",
+    "@modelcontextprotocol/server-memory": "^2026.1.26",
     "@slack/bolt": "^4.6.0",
     "better-sqlite3": "^12.6.2",
     "cron": "^4.4.0",

@@ -133,5 +133,6 @@
         "enabled": false
       }
     ]
-  }
+  },
+  "_comment_mcp": "MCP servers are configured separately in ~/.copilot/mcp-config.json (user-level) or <workspace>/mcp-config.json (workspace-level). See mcp-config.sample.json for an example including the MCP Memory Server for persistent knowledge graph support."
 }
