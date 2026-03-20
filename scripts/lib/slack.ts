@@ -4,7 +4,7 @@
  */
 
 /**
- * Generate a Slack App Manifest for copilot-bridge.
+ * Generate a Slack App Manifest for Bridge.
  * This pre-configures all required scopes, events, and Socket Mode.
  */
 export function generateManifest(botName: string): object {

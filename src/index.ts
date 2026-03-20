@@ -236,7 +236,7 @@ async function resolveSlackAccessUsers(config: AppConfig): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  log.info('copilot-bridge starting...');
+  log.info('Bridge starting...');
 
   // Load configuration
   const config = loadConfig();
@@ -448,7 +448,7 @@ async function main(): Promise<void> {
     }
   }
 
-  log.info('copilot-bridge ready!');
+  log.info('Bridge ready!');
 
   // Initialize scheduler — rehydrate persisted jobs
   initScheduler({
@@ -1309,7 +1309,7 @@ async function handleInboundMessage(
           lines.push('');
         }
 
-        lines.push('**Copilot Bridge Tools**');
+        lines.push('**Bridge Tools**');
         for (const t of BRIDGE_CUSTOM_TOOLS) lines.push(`• \`${t}\``);
 
         if (skills.length === 0 && mcpInfo.length === 0) {

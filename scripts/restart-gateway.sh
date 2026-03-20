@@ -1,10 +1,10 @@
 #!/bin/bash
-# Restart the copilot-bridge gateway service (macOS launchd)
+# Restart the Bridge gateway service (macOS launchd)
 #
 # Safe to run from a bot session — uses kickstart which restarts
 # in-place without unloading the service definition.
 
-LABEL="com.copilot-bridge"
+LABEL="com.bridge"
 DOMAIN="gui/$(id -u)"
 
 if ! launchctl print "$DOMAIN/$LABEL" &>/dev/null; then
@@ -23,10 +23,10 @@ launchctl kickstart -k "$DOMAIN/$LABEL" 2>/dev/null || {
 
 sleep 2
 if launchctl list | grep -q "$LABEL"; then
-    echo "✅ copilot-bridge restarted"
-    tail -3 "$HOME/.copilot-bridge/copilot-bridge.log" 2>/dev/null
+    echo "✅ Bridge restarted"
+    tail -3 "$HOME/.bridge/bridge.log" 2>/dev/null
 else
     echo "❌ Service not running after restart"
-    tail -10 "$HOME/.copilot-bridge/copilot-bridge.log" 2>/dev/null
+    tail -10 "$HOME/.bridge/bridge.log" 2>/dev/null
     exit 1
 fi

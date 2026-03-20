@@ -14,15 +14,15 @@ const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'templates');
 
 const log = createLogger('workspace');
 
-export const WORKSPACES_DIR = path.join(os.homedir(), '.copilot-bridge', 'workspaces');
-export const CONFIG_HOME = path.join(os.homedir(), '.copilot-bridge');
-const USER_TEMPLATES_DIR = path.join(os.homedir(), '.copilot-bridge', 'templates');
+export const WORKSPACES_DIR = path.join(os.homedir(), '.bridge', 'workspaces');
+export const CONFIG_HOME = path.join(os.homedir(), '.bridge');
+const USER_TEMPLATES_DIR = path.join(os.homedir(), '.bridge', 'templates');
 
 export function ensureWorkspacesDir(): void {
   if (!fs.existsSync(WORKSPACES_DIR)) {
     fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
   }
-  // Recursively sync distributable templates to ~/.copilot-bridge/templates/
+  // Recursively sync distributable templates to ~/.bridge/templates/
   if (fs.existsSync(TEMPLATES_DIR)) {
     syncDir(TEMPLATES_DIR, USER_TEMPLATES_DIR);
   }

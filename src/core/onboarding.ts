@@ -27,7 +27,7 @@ export interface OnboardProjectOpts {
   teamId: string;
   /** Private channel (default true) */
   private?: boolean;
-  /** Custom workspace path (default: ~/.copilot-bridge/workspaces/<projectName>/) */
+  /** Custom workspace path (default: ~/.bridge/workspaces/<projectName>/) */
   workspacePath?: string;
   /** Git repo URL to clone into workspace */
   repoUrl?: string;
@@ -138,7 +138,7 @@ export async function onboardProject(
   // 4. Set up workspace
   const defaultWorkspace = path.join(
     process.env.HOME ?? '/tmp',
-    '.copilot-bridge', 'workspaces', slug,
+    '.bridge', 'workspaces', slug,
   );
   let workspacePath = opts.workspacePath ?? defaultWorkspace;
   // Expand ~ to home directory (Node fs APIs don't expand tilde)

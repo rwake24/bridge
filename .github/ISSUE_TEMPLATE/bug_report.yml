@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug in copilot-bridge
+description: Report a bug in Bridge
 title: "Bug: "
 labels: ["bug"]
 body:

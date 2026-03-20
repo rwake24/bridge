@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.copilot-bridge</string>
+    <string>com.bridge</string>
 
     <key>ProgramArguments</key>
     <array>
@@ -13,7 +13,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/USERNAME/path/to/copilot-bridge</string>
+    <string>/Users/USERNAME/path/to/bridge</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -36,9 +36,9 @@
     <integer>63</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/USERNAME/.copilot-bridge/copilot-bridge.log</string>
+    <string>/Users/USERNAME/.bridge/bridge.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/USERNAME/.copilot-bridge/copilot-bridge.log</string>
+    <string>/Users/USERNAME/.bridge/bridge.log</string>
 </dict>
 </plist>

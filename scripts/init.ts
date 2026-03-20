@@ -66,7 +66,7 @@ async function readFromKeychain(service: string, account: string): Promise<strin
 }
 
 async function main() {
-  const isCli = process.env.COPILOT_BRIDGE_CLI === '1';
+  const isCli = process.env.BRIDGE_CLI === '1';
   console.log();
   heading('🚀 agent0 setup');
   dim('Interactive wizard to configure agent0.\n');
@@ -114,7 +114,7 @@ async function main() {
 
     if (action === 2) {
       info(isCli
-        ? 'Run "copilot-bridge check" to validate your existing config.'
+        ? 'Run "bridge check" to validate your existing config.'
         : 'Run "npm run check" to validate your existing config.');
       closePrompts();
       process.exit(0);
@@ -217,7 +217,7 @@ async function main() {
         if (access) bots[bots.length - 1].access = access;
       } else {
         warn(isCli
-          ? 'Token validation failed. The token was still added — verify it later with "copilot-bridge check".'
+          ? 'Token validation failed. The token was still added — verify it later with "bridge check".'
           : 'Token validation failed. The token was still added — verify it later with "npm run check".');
         let name = await askRequired('Bot username (for config)');
         name = name.replace(/^@/, '');
@@ -702,9 +702,9 @@ async function main() {
   if (serviceStatus.running) {
     warn('The bridge service is currently running. Restart it to apply the new config:');
     if (osPlatform === 'macos') {
-      dim('  launchctl kickstart -k gui/$(id -u)/com.copilot-bridge');
+      dim('  launchctl kickstart -k gui/$(id -u)/com.bridge');
     } else if (osPlatform === 'linux') {
-      dim('  sudo systemctl restart copilot-bridge');
+      dim('  sudo systemctl restart bridge');
     }
     blank();
   } else if (serviceStatus.running === false && serviceStatus.pid !== undefined || serviceStatus.detail.startsWith('launchd:') || serviceStatus.detail.startsWith('systemd:')) {
@@ -715,9 +715,9 @@ async function main() {
     } else {
       info('The bridge service is installed but not running. Start it with:');
       if (osPlatform === 'macos') {
-        dim('  launchctl kickstart gui/$(id -u)/com.copilot-bridge');
+        dim('  launchctl kickstart gui/$(id -u)/com.bridge');
       } else if (osPlatform === 'linux') {
-        dim('  sudo systemctl start copilot-bridge');
+        dim('  sudo systemctl start bridge');
       }
       blank();
     }

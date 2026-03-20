@@ -1,12 +1,12 @@
 #!/usr/bin/env npx tsx
 /**
- * copilot-bridge service-status — Show the current service status.
+ * bridge service-status — Show the current service status.
  *
- * macOS:   launchctl list com.copilot-bridge
- * Linux:   systemctl is-active copilot-bridge
- * Windows: sc.exe query CopilotBridge / Get-Service
+ * macOS:   launchctl list com.bridge
+ * Linux:   systemctl is-active bridge
+ * Windows: sc.exe query Bridge / Get-Service
  *
- * Usage: copilot-bridge service-status
+ * Usage: bridge service-status
  */
 
 import { heading, success, fail, info, dim, blank } from './lib/output.js';
@@ -16,7 +16,7 @@ import * as os from 'node:os';
 function main() {
   const osPlatform = detectPlatform();
 
-  heading('ℹ️  copilot-bridge service status');
+  heading('ℹ️  Bridge service status');
   blank();
 
   const status = getServiceStatus();
@@ -34,7 +34,7 @@ function main() {
     const logPath = getLogPath(os.homedir());
     dim(`  tail -f "${logPath}"`);
   } else if (osPlatform === 'linux') {
-    dim('  sudo journalctl -u copilot-bridge -f');
+    dim('  sudo journalctl -u bridge -f');
   } else if (osPlatform === 'windows') {
     const logPath = getWindowsLogPath(os.homedir());
     dim(`  Get-Content -Wait "${logPath}"   # PowerShell`);
@@ -44,10 +44,10 @@ function main() {
 
   blank();
   dim('Management:');
-  dim('  copilot-bridge service-start      # start the service');
-  dim('  copilot-bridge service-stop       # stop the service');
-  dim('  copilot-bridge install-service    # install (if not installed)');
-  dim('  copilot-bridge uninstall-service  # remove the service');
+  dim('  bridge service-start      # start the service');
+  dim('  bridge service-stop       # stop the service');
+  dim('  bridge install-service    # install (if not installed)');
+  dim('  bridge uninstall-service  # remove the service');
 }
 
 main();

@@ -1,6 +1,6 @@
 # Mattermost Infrastructure (Docker Compose)
 
-This docker-compose setup provides the infrastructure that copilot-bridge connects to:
+This docker-compose setup provides the infrastructure that Bridge connects to:
 
 | Service | Purpose |
 |---------|---------|
@@ -24,8 +24,8 @@ docker compose up -d
 # Open http://localhost:${MATTERMOST_PORT:-8065}, create an admin account,
 # then create a bot: System Console → Integrations → Bot Accounts
 
-# 4. Configure copilot-bridge
-copilot-bridge init
+# 4. Configure Bridge
+bridge init
 # Enter http://localhost:${MATTERMOST_PORT:-8065} as the Mattermost URL
 ```
 

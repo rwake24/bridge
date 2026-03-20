@@ -1,0 +1,30 @@
+# bridge systemd service
+#
+# Install:
+#   sudo cp scripts/bridge.service /etc/systemd/system/
+#   # Edit ExecStart, WorkingDirectory, User, and HOME below
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now bridge
+#
+# Logs:
+#   sudo journalctl -u bridge -f
+#
+# Restart:
+#   sudo systemctl restart bridge
+
+[Unit]
+Description=Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=username
+ExecStart=/usr/local/bin/node /path/to/bridge/node_modules/.bin/tsx dist/index.js
+WorkingDirectory=/path/to/bridge
+Environment=HOME=/home/username
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide walks you through installing and configuring copilot-bridge from scratch. If you prefer an interactive experience, run `copilot-bridge init` (or `npm run init` from source) after installing — it automates most of these steps.
+This guide walks you through installing and configuring Bridge from scratch. If you prefer an interactive experience, run `bridge init` (or `npm run init` from source) after installing — it automates most of these steps.
 
 ## Prerequisites
 
@@ -42,23 +42,23 @@ Environment variables: `COPILOT_GITHUB_TOKEN` > `GH_TOKEN` > `GITHUB_TOKEN` (fir
 ### From npm (recommended)
 
 ```bash
-npm install -g @chrisromp/copilot-bridge
+npm install -g bridge
 ```
 
-After installing, use `copilot-bridge <command>` anywhere:
+After installing, use `bridge <command>` anywhere:
 
 ```bash
-copilot-bridge init              # Interactive setup wizard
-copilot-bridge check             # Validate configuration
-copilot-bridge start             # Start the bridge
-copilot-bridge install-service   # Install as system service
+bridge init              # Interactive setup wizard
+bridge check             # Validate configuration
+bridge start             # Start the bridge
+bridge install-service   # Install as system service
 ```
 
 ### From source
 
 ```bash
 git clone https://github.com/ChrisRomp/copilot-bridge.git
-cd copilot-bridge
+cd copilot-bridge 
 npm install
 ```
 
@@ -69,7 +69,7 @@ When running from source, use `npm run <command>` (e.g., `npm run init`, `npm ru
 ### Interactive Setup (Recommended)
 
 ```bash
-copilot-bridge init
+bridge init
 # Or from source: npm run init
 ```
 
@@ -88,7 +88,7 @@ The wizard walks you through:
 #### 1. Create the config directory
 
 ```bash
-mkdir -p ~/.copilot-bridge
+mkdir -p ~/.bridge
 ```
 
 #### 2. Create `config.json`
@@ -96,7 +96,7 @@ mkdir -p ~/.copilot-bridge
 Copy the sample and edit it:
 
 ```bash
-cp config.sample.json ~/.copilot-bridge/config.json
+cp config.sample.json ~/.bridge/config.json
 ```
 
 **Minimal config (single bot, DMs only):**
@@ -191,7 +191,7 @@ For group channels, add the bot to each channel:
 <details>
 <summary>Slack</summary>
 
-The easiest way is to use `copilot-bridge init` — it generates a manifest URL that pre-fills all permissions. For manual setup:
+The easiest way is to use `bridge init` — it generates a manifest URL that pre-fills all permissions. For manual setup:
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**
 2. Select your workspace and paste the manifest (or use `init` to generate one)
@@ -218,14 +218,14 @@ For group channels, you need the platform-specific channel ID:
 ## Validate Your Setup
 
 ```bash
-copilot-bridge check
+bridge check
 # Or from source: npm run check
 ```
 
 This verifies everything end-to-end:
 
 ```
-🔍 copilot-bridge check
+🔍 bridge check
 
 Prerequisites
 ✅ Node.js v22.0.0
@@ -233,7 +233,7 @@ Prerequisites
 ✅ GitHub authenticated (via gh CLI)
 
 Configuration
-✅ Config: ~/.copilot-bridge/config.json
+✅ Config: ~/.bridge/config.json
 ✅ Config structure valid
 
 Platforms
@@ -252,7 +252,7 @@ All checks passed!
 ### From npm (installed globally)
 
 ```bash
-copilot-bridge start
+bridge start
 ```
 
 ### From source (development)
@@ -277,7 +277,7 @@ The bridge should run persistently so it's always available in chat.
 ### Automatic install (recommended)
 
 ```bash
-copilot-bridge install-service
+bridge install-service
 # Or from source: npm run install-service
 ```
 
@@ -297,39 +297,39 @@ After installing, management commands are printed to the terminal.
 To remove the service:
 
 ```bash
-copilot-bridge uninstall-service
+bridge uninstall-service
 # Or from source: npm run uninstall-service
 ```
 
 ### Manual setup
 
 > [!NOTE]
-> The manual steps below reference template files in the `scripts/` directory. If you installed via npm, these are at `$(npm root -g)/@chrisromp/copilot-bridge/scripts/`. The automated `copilot-bridge install-service` command is recommended instead.
+> The manual steps below reference template files in the `scripts/` directory. If you installed via npm, these are at `$(npm root -g)/bridge/scripts/`. The automated `bridge install-service` command is recommended instead.
 
 <details>
 <summary>macOS (launchd) — manual steps</summary>
 
 ```bash
-cp scripts/com.copilot-bridge.plist ~/Library/LaunchAgents/
+cp scripts/com.bridge.plist ~/Library/LaunchAgents/
 ```
 
 Edit the plist to update paths:
-- `WorkingDirectory` → your copilot-bridge clone path
+- `WorkingDirectory` → your bridge clone path
 - `HOME` → your home directory
 - `PATH` → ensure it includes your Node.js install location
 
 Then load it:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.copilot-bridge.plist
+launchctl load ~/Library/LaunchAgents/com.bridge.plist
 ```
 
 Management:
 
 ```bash
-launchctl list com.copilot-bridge                        # status
-launchctl kickstart -k gui/$(id -u)/com.copilot-bridge   # restart
-tail -f ~/.copilot-bridge/copilot-bridge.log                     # logs
+launchctl list com.bridge                        # status
+launchctl kickstart -k gui/$(id -u)/com.bridge   # restart
+tail -f ~/.bridge/bridge.log                     # logs
 ```
 
 > [!WARNING]
@@ -345,12 +345,12 @@ tail -f ~/.copilot-bridge/copilot-bridge.log                     # logs
 npm run build
 
 # Install the service
-sudo cp scripts/copilot-bridge.service /etc/systemd/system/
+sudo cp scripts/bridge.service /etc/systemd/system/
 ```
 
-Edit `/etc/systemd/system/copilot-bridge.service`:
+Edit `/etc/systemd/system/bridge.service`:
 - `ExecStart` → path to `npx tsx` and your `dist/index.js`
-- `WorkingDirectory` → your copilot-bridge clone path
+- `WorkingDirectory` → your bridge clone path
 - Change `User=username` to your service account user
 - `HOME` → that user's home directory
 
@@ -358,22 +358,22 @@ Then enable and start:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now copilot-bridge
+sudo systemctl enable --now bridge
 ```
 
 Management:
 
 ```bash
-sudo systemctl status copilot-bridge        # status
-sudo journalctl -u copilot-bridge -f        # logs
-sudo systemctl restart copilot-bridge       # restart
+sudo systemctl status bridge        # status
+sudo journalctl -u bridge -f        # logs
+sudo systemctl restart bridge       # restart
 ```
 
 > [!TIP]
 > **Let Copilot help with service setup.** The paths in service files are environment-specific. If you have the Copilot CLI installed, ask it:
 > ```
-> Help me configure the copilot-bridge systemd service file at /etc/systemd/system/copilot-bridge.service.
-> My copilot-bridge is cloned at /path/to/copilot-bridge, Node.js is at $(which node),
+> Help me configure the Bridge systemd service file at /etc/systemd/system/bridge.service.
+> My Bridge is cloned at /path/to/bridge, Node.js is at $(which node),
 > and it should run as my user.
 > ```
 
@@ -383,9 +383,9 @@ sudo systemctl restart copilot-bridge       # restart
 
 When the bridge starts for the first time:
 
-1. **Config loaded** from `~/.copilot-bridge/config.json`
-2. **SQLite database** created at `~/.copilot-bridge/state.db`
-3. **Workspaces** initialized at `~/.copilot-bridge/workspaces/<botname>/` with files generated from templates:
+1. **Config loaded** from `~/.bridge/config.json`
+2. **SQLite database** created at `~/.bridge/state.db`
+3. **Workspaces** initialized at `~/.bridge/workspaces/<botname>/` with files generated from templates:
    - `AGENTS.md` — system prompt defining the bot's role, tools, and constraints. Admin bots get an admin-specific template with bridge management capabilities; regular bots get a sandboxed template. **Customize this file** to shape your bot's behavior.
    - `MEMORY.md` — persistent memory file the bot can read/write across sessions
    - These files are only created if they don't already exist — your customizations are safe across restarts
@@ -396,10 +396,10 @@ The bridge is ready when you see the "listening for messages" log.
 
 ### File layout
 
-After first run, your `~/.copilot-bridge/` directory looks like this:
+After first run, your `~/.bridge/` directory looks like this:
 
 ```
-~/.copilot-bridge/
+~/.bridge/
 ├── config.json                 # Bridge configuration
 ├── state.db                    # SQLite database (sessions, prefs, permissions)
 └── workspaces/
@@ -416,7 +416,7 @@ The `AGENTS.md` and `MEMORY.md` files are generated from the templates in the re
 
 ## Next Steps
 
-- **Customize your bot**: Edit `~/.copilot-bridge/workspaces/<botname>/AGENTS.md` to define the bot's personality and capabilities
+- **Customize your bot**: Edit `~/.bridge/workspaces/<botname>/AGENTS.md` to define the bot's personality and capabilities
 - **Add MCP servers**: Configure external tools in `~/.copilot/mcp-config.json` (user-level, shared with Copilot CLI)
 - **Set up permissions**: Use the `/autopilot` command in chat, or configure `permissions` in `config.json`
 - **Explore commands**: Type `/help` in chat to see all available slash commands
@@ -427,9 +427,9 @@ See the [full configuration reference](configuration.md) and [architecture overv
 
 | Issue | Likely Cause | Fix |
 |-------|-------------|-----|
-| "Config file not found" | Missing config | Run `copilot-bridge init` or copy `config.sample.json` to `~/.copilot-bridge/config.json` |
+| "Config file not found" | Missing config | Run `bridge init` or copy `config.sample.json` to `~/.bridge/config.json` |
 | `better-sqlite3` fails during `npm install` | Missing native build tools | `sudo apt-get install -y python3-full build-essential` (Linux) |
-| Bot doesn't respond | Token invalid or bot not in channel | Run `copilot-bridge check` to diagnose |
+| Bot doesn't respond | Token invalid or bot not in channel | Run `bridge check` to diagnose |
 | "WebSocket closed" (Mattermost) | Bad URL or token | Verify URL and token in config |
 | "Socket Mode" errors (Slack) | Invalid app token | Verify `appToken` starts with `xapp-` and has `connections:write` scope |
 | Can't DM the Slack bot | Messages tab not enabled | In Slack app settings → App Home → enable "Allow users to send messages" |
@@ -437,4 +437,4 @@ See the [full configuration reference](configuration.md) and [architecture overv
 | Service won't start | Wrong paths in service file | Check `WorkingDirectory` and `ExecStart` paths |
 | Permission denied on files | Agent working outside workspace | Grant access via `allowPaths` in config or admin `grant_path_access` tool |
 
-Run `copilot-bridge check` (or `npm run check` from source) at any time to validate your entire setup.
+Run `bridge check` (or `npm run check` from source) at any time to validate your entire setup.

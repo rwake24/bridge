@@ -15,7 +15,7 @@ if (typeof window === 'undefined') {
   (globalThis as any).window = {
     addEventListener: () => {},
     removeEventListener: () => {},
-    navigator: { userAgent: 'copilot-bridge/0.1.0 (Node.js)' },
+    navigator: { userAgent: 'bridge/0.1.0 (Node.js)' },
   };
 }
 

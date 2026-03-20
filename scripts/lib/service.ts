@@ -43,7 +43,7 @@ export function getSystemPath(): string {
 }
 
 export function getLogPath(homePath: string): string {
-  return path.join(homePath, '.copilot-bridge', 'copilot-bridge.log');
+  return path.join(homePath, '.bridge', 'bridge.log');
 }
 
 // --- launchd (macOS) ---
@@ -105,7 +105,7 @@ export function generateLaunchdPlist(config: LaunchdConfig): string {
 }
 
 export function getLaunchdInstallPath(): string {
-  return path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.copilot-bridge.plist');
+  return path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.bridge.plist');
 }
 
 export function installLaunchd(plistContent: string): { installed: boolean; path: string; error?: string } {
@@ -128,14 +128,14 @@ export function generateNewsyslogConfig(logPath: string, user: string): string {
   try { group = execSync('id -gn', { encoding: 'utf-8' }).trim(); } catch { /* default */ }
   // N=no signal, C=create new file after rotation, Z=gzip compress
   // Rotates at 10 MB, keeps 3 archives
-  return `# Copilot Bridge log rotation — installed by copilot-bridge install-service
+  return `# Bridge log rotation — installed by bridge install-service
 # logfilename  owner:group  mode  count  size(KB)  when  flags
 ${logPath}  ${user}:${group}  600  3  10240  *  NCZ
 `;
 }
 
 export function getNewsyslogInstallPath(): string {
-  return '/etc/newsyslog.d/copilot-bridge.conf';
+  return '/etc/newsyslog.d/bridge.conf';
 }
 
 // --- systemd (Linux) ---
@@ -150,7 +150,7 @@ export function generateSystemdUnit(config: SystemdConfig): string {
   const nodePath = getNodePath();
   const tsxPath = path.join(config.bridgePath, 'node_modules', '.bin', 'tsx');
   return `[Unit]
-Description=Copilot Bridge
+Description=Bridge
 After=network.target
 
 [Service]
@@ -169,14 +169,14 @@ WantedBy=multi-user.target`;
 }
 
 export function getSystemdInstallPath(): string {
-  return '/etc/systemd/system/copilot-bridge.service';
+  return '/etc/systemd/system/bridge.service';
 }
 
 // --- Windows (NSSM / sc.exe) ---
 
-const WINDOWS_SERVICE_NAME = 'CopilotBridge';
-const WINDOWS_SERVICE_DISPLAY = 'Copilot Bridge';
-const WINDOWS_SERVICE_DESCRIPTION = 'Mattermost <-> GitHub Copilot bridge';
+const WINDOWS_SERVICE_NAME = 'Bridge';
+const WINDOWS_SERVICE_DISPLAY = 'Bridge';
+const WINDOWS_SERVICE_DESCRIPTION = 'Bridge — GitHub Copilot to Mattermost';
 
 // --- Service status ---
 
@@ -185,7 +185,7 @@ export function getServiceStatus(): { running: boolean; pid?: number; detail: st
 
   if (platform === 'macos') {
     try {
-      const output = execSync('launchctl list com.copilot-bridge 2>/dev/null', { encoding: 'utf-8' });
+      const output = execSync('launchctl list com.bridge 2>/dev/null', { encoding: 'utf-8' });
       const pidMatch = output.match(/"PID"\s*=\s*(\d+)/);
       if (pidMatch) {
         return { running: true, pid: parseInt(pidMatch[1], 10), detail: `launchd, PID ${pidMatch[1]}` };
@@ -200,10 +200,10 @@ export function getServiceStatus(): { running: boolean; pid?: number; detail: st
   if (platform === 'linux') {
     try {
       // systemctl is-active exits non-zero for inactive/unknown services
-      const output = execSync('systemctl is-active copilot-bridge 2>/dev/null', { encoding: 'utf-8' }).trim();
+      const output = execSync('systemctl is-active bridge 2>/dev/null', { encoding: 'utf-8' }).trim();
       if (output === 'active') {
         try {
-          const pid = execSync('systemctl show copilot-bridge --property=MainPID --value 2>/dev/null', { encoding: 'utf-8' }).trim();
+          const pid = execSync('systemctl show bridge --property=MainPID --value 2>/dev/null', { encoding: 'utf-8' }).trim();
           return { running: true, pid: parseInt(pid, 10), detail: `systemd, PID ${pid}` };
         } catch {
           return { running: true, detail: 'systemd: active' };
@@ -272,7 +272,7 @@ export function getWindowsServiceInstallPath(): string {
 }
 
 export function getWindowsLogPath(homePath: string): string {
-  return path.join(homePath, '.copilot-bridge', 'copilot-bridge.log');
+  return path.join(homePath, '.bridge', 'bridge.log');
 }
 
 /** Run a command silently, ignoring errors (e.g., when removing a service that may not exist). */

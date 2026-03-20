@@ -41,14 +41,14 @@ describe('service', () => {
   describe('generateLaunchdPlist', () => {
     it('generates valid plist XML', () => {
       const plist = generateLaunchdPlist({
-        label: 'com.copilot-bridge',
-        bridgePath: '/Users/test/copilot-bridge',
+        label: 'com.bridge',
+        bridgePath: '/Users/test/bridge',
         homePath: '/Users/test',
       });
 
       expect(plist).toContain('<?xml version="1.0"');
-      expect(plist).toContain('<string>com.copilot-bridge</string>');
-      expect(plist).toContain('/Users/test/copilot-bridge');
+      expect(plist).toContain('<string>com.bridge</string>');
+      expect(plist).toContain('/Users/test/bridge');
       expect(plist).toContain('/Users/test</string>');
       expect(plist).toContain('<key>RunAtLoad</key>');
       expect(plist).toContain('<key>KeepAlive</key>');
@@ -56,21 +56,21 @@ describe('service', () => {
       expect(plist).toContain('dist/index.js');
     });
 
-    it('uses ~/.copilot-bridge/copilot-bridge.log for log path', () => {
+    it('uses ~/.bridge/bridge.log for log path', () => {
       const plist = generateLaunchdPlist({
-        label: 'com.copilot-bridge',
-        bridgePath: '/Users/test/copilot-bridge',
+        label: 'com.bridge',
+        bridgePath: '/Users/test/bridge',
         homePath: '/Users/test',
       });
 
-      expect(plist).toContain('/Users/test/.copilot-bridge/copilot-bridge.log');
-      expect(plist).not.toContain('/tmp/copilot-bridge.log');
+      expect(plist).toContain('/Users/test/.bridge/bridge.log');
+      expect(plist).not.toContain('/tmp/bridge.log');
     });
 
     it('includes Umask key', () => {
       const plist = generateLaunchdPlist({
-        label: 'com.copilot-bridge',
-        bridgePath: '/Users/test/copilot-bridge',
+        label: 'com.bridge',
+        bridgePath: '/Users/test/bridge',
         homePath: '/Users/test',
       });
 
@@ -82,7 +82,7 @@ describe('service', () => {
   describe('generateSystemdUnit', () => {
     it('generates valid systemd unit', () => {
       const unit = generateSystemdUnit({
-        bridgePath: '/home/test/copilot-bridge',
+        bridgePath: '/home/test/bridge',
         homePath: '/home/test',
         user: 'test',
       });
@@ -90,8 +90,8 @@ describe('service', () => {
       expect(unit).toContain('[Unit]');
       expect(unit).toContain('[Service]');
       expect(unit).toContain('[Install]');
-      expect(unit).toContain('Copilot Bridge');
-      expect(unit).toContain('/home/test/copilot-bridge');
+      expect(unit).toContain('Bridge');
+      expect(unit).toContain('/home/test/bridge');
       expect(unit).toContain('tsx');
       expect(unit).toContain('dist/index.js');
       expect(unit).toContain('Restart=always');
@@ -100,7 +100,7 @@ describe('service', () => {
 
     it('includes UMask directive', () => {
       const unit = generateSystemdUnit({
-        bridgePath: '/home/test/copilot-bridge',
+        bridgePath: '/home/test/bridge',
         homePath: '/home/test',
         user: 'test',
       });
@@ -110,7 +110,7 @@ describe('service', () => {
 
     it('quotes paths in ExecStart for spaces', () => {
       const unit = generateSystemdUnit({
-        bridgePath: '/home/test/my project/copilot-bridge',
+        bridgePath: '/home/test/my project/bridge',
         homePath: '/home/test',
         user: 'test',
       });
@@ -120,16 +120,16 @@ describe('service', () => {
   });
 
   describe('getLogPath', () => {
-    it('returns path under .copilot-bridge', () => {
-      expect(getLogPath('/Users/test')).toBe('/Users/test/.copilot-bridge/copilot-bridge.log');
-      expect(getLogPath('/home/test')).toBe('/home/test/.copilot-bridge/copilot-bridge.log');
+    it('returns path under .bridge', () => {
+      expect(getLogPath('/Users/test')).toBe('/Users/test/.bridge/bridge.log');
+      expect(getLogPath('/home/test')).toBe('/home/test/.bridge/bridge.log');
     });
   });
 
   describe('generateNewsyslogConfig', () => {
     it('generates config with correct log path and user', () => {
-      const config = generateNewsyslogConfig('/Users/test/.copilot-bridge/copilot-bridge.log', 'test');
-      expect(config).toContain('/Users/test/.copilot-bridge/copilot-bridge.log');
+      const config = generateNewsyslogConfig('/Users/test/.bridge/bridge.log', 'test');
+      expect(config).toContain('/Users/test/.bridge/bridge.log');
       expect(config).toContain('test:');
       expect(config).toContain('600');
       expect(config).toContain('NCZ');
@@ -137,29 +137,29 @@ describe('service', () => {
   });
 
   describe('getNewsyslogInstallPath', () => {
-    it('returns /etc/newsyslog.d/copilot-bridge.conf', () => {
-      expect(getNewsyslogInstallPath()).toBe('/etc/newsyslog.d/copilot-bridge.conf');
+    it('returns /etc/newsyslog.d/bridge.conf', () => {
+      expect(getNewsyslogInstallPath()).toBe('/etc/newsyslog.d/bridge.conf');
     });
   });
 
   describe('install paths', () => {
     it('launchd path is under LaunchAgents', () => {
       const p = getLaunchdInstallPath();
-      expect(p).toBe(path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.copilot-bridge.plist'));
+      expect(p).toBe(path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.bridge.plist'));
     });
 
     it('systemd path is /etc/systemd/system/', () => {
       const p = getSystemdInstallPath();
-      expect(p).toBe('/etc/systemd/system/copilot-bridge.service');
+      expect(p).toBe('/etc/systemd/system/bridge.service');
     });
   });
 
   describe('getWindowsLogPath', () => {
-    it('returns path under .copilot-bridge', () => {
+    it('returns path under .bridge', () => {
       expect(getWindowsLogPath('C:\\Users\\test')).toBe(
-        path.join('C:\\Users\\test', '.copilot-bridge', 'copilot-bridge.log'),
+        path.join('C:\\Users\\test', '.bridge', 'bridge.log'),
       );
-      expect(getWindowsLogPath('/home/test')).toBe('/home/test/.copilot-bridge/copilot-bridge.log');
+      expect(getWindowsLogPath('/home/test')).toBe('/home/test/.bridge/bridge.log');
     });
   });
 
