@@ -50,7 +50,7 @@ export interface CommandResult {
   handled: boolean;
   response?: string;
   action?: 'new_session' | 'reload_session' | 'reload_config' | 'resume_session' | 'list_sessions' | 'switch_model' | 'switch_agent' | 'toggle_verbose' |
-           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'skill_toggle' | 'mcp' | 'plan';
+           'approve' | 'deny' | 'toggle_autopilot' | 'remember' | 'remember_deny' | 'remember_list' | 'remember_clear' | 'set_reasoning' | 'stop_session' | 'schedule' | 'skills' | 'skill_toggle' | 'mcp' | 'plan' | 'save_correction';
   payload?: any;
 }
 
@@ -484,6 +484,14 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
       return { handled: true, action: 'skills' };
     }
 
+    case 'correct': {
+      const correction = parsed.args?.trim();
+      if (!correction) {
+        return { handled: true, response: '⚠️ Usage: `/correct <text>` — describe what Bridge got wrong.' };
+      }
+      return { handled: true, action: 'save_correction', payload: correction };
+    }
+
     case 'pipeline':
     case 'accounts': {
       const args = parsed.args?.trim().toLowerCase();
@@ -613,6 +621,7 @@ export function handleCommand(channelId: string, text: string, sessionInfo?: { s
           '`/plan` — Toggle plan mode (on/off)',
           '`/plan show` — Show current plan',
           '`/plan clear` — Delete the plan',
+          '`/correct <text>` — Save a correction to corrections.md',
           '`/streamer-mode [on|off]` — Toggle streamer mode (alias: `/on-air`)',
           '',
           '**Accounts & Pipeline**',

@@ -512,3 +512,28 @@ describe('/approve and /deny commands', () => {
     expect(result.response).toContain('Denied');
   });
 });
+
+// --- /correct command ---
+
+describe('/correct command', () => {
+  it('returns error when no text provided', () => {
+    const result = handleCommand('ch-correct-1', '/correct');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBeUndefined();
+    expect(result.response).toContain('Usage');
+  });
+
+  it('returns save_correction action with correction text as payload', () => {
+    const result = handleCommand('ch-correct-1', '/correct AEs don\'t handle pricing — Specialists/SSPs do');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('save_correction');
+    expect(result.payload).toBe('AEs don\'t handle pricing — Specialists/SSPs do');
+  });
+
+  it('trims leading/trailing whitespace from correction text', () => {
+    const result = handleCommand('ch-correct-1', '/correct   MACARR does not cover Xylem   ');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('save_correction');
+    expect(result.payload).toBe('MACARR does not cover Xylem');
+  });
+});
