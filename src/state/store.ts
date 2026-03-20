@@ -693,6 +693,15 @@ export function getEnabledScheduledTasks(): ScheduledTask[] {
   return rows.map(mapTaskRow);
 }
 
+/** Return all scheduled tasks across every channel (enabled + paused recurring, excluding finished one-offs), newest first within each channel. */
+export function getAllScheduledTasks(): ScheduledTask[] {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT * FROM scheduled_tasks WHERE enabled = 1 OR cron_expr IS NOT NULL ORDER BY channel_id, created_at DESC'
+  ).all() as any[];
+  return rows.map(mapTaskRow);
+}
+
 export function updateScheduledTaskEnabled(id: string, enabled: boolean): void {
   const db = getDb();
   db.prepare('UPDATE scheduled_tasks SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);

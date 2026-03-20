@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { DateTime } from 'luxon';
 import { createLogger } from '../logger.js';
 import {
-  getEnabledScheduledTasks, insertScheduledTask, upsertScheduledTask, deleteScheduledTask,
+  getEnabledScheduledTasks, getAllScheduledTasks, insertScheduledTask, upsertScheduledTask, deleteScheduledTask,
   updateScheduledTaskEnabled, updateScheduledTaskLastRun,
   getScheduledTasksForChannel, getScheduledTask,
   insertTaskHistory,
@@ -314,6 +314,11 @@ export function resumeJob(id: string, channelId?: string): boolean {
 export function listJobs(channelId?: string): ScheduledTask[] {
   if (channelId) return getScheduledTasksForChannel(channelId);
   return getEnabledScheduledTasks();
+}
+
+/** List all jobs across every channel (enabled + paused recurring). */
+export function listAllJobs(): ScheduledTask[] {
+  return getAllScheduledTasks();
 }
 
 /** Get a job by ID. */
