@@ -512,3 +512,36 @@ describe('/approve and /deny commands', () => {
     expect(result.response).toContain('Denied');
   });
 });
+
+// --- /correct command ---
+
+describe('/correct command', () => {
+  it('returns correct action with correction text as payload', () => {
+    const result = handleCommand('ch-correct-1', '/correct MACARR does not cover Xylem');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('correct');
+    expect(result.payload).toBe('MACARR does not cover Xylem');
+  });
+
+  it('returns usage message when no args provided', () => {
+    const result = handleCommand('ch-correct-2', '/correct');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBeUndefined();
+    expect(result.response).toContain('Usage');
+  });
+
+  it('preserves multi-word correction text as payload', () => {
+    const text = 'The AE for Acme Corp is Jane Smith not Bob Jones';
+    const result = handleCommand('ch-correct-3', `/correct ${text}`);
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('correct');
+    expect(result.payload).toBe(text);
+  });
+
+  it('trims leading/trailing whitespace from correction', () => {
+    const result = handleCommand('ch-correct-4', '/correct   some fact   ');
+    expect(result.handled).toBe(true);
+    expect(result.action).toBe('correct');
+    expect(result.payload).toBe('some fact');
+  });
+});

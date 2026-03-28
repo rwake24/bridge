@@ -1502,6 +1502,44 @@ async function handleInboundMessage(
         }
         break;
       }
+
+      case 'correct': {
+        const correction = cmdResult.payload as string;
+        const workDir = channelConfig.workingDirectory;
+        try {
+          const correctionsFile = path.join(workDir, 'corrections.md');
+          const date = new Date().toISOString().slice(0, 10);
+          const entry = `\n- [${date}] ${correction}`;
+          if (!fs.existsSync(correctionsFile)) {
+            fs.writeFileSync(correctionsFile, `# Corrections\n${entry}\n`, 'utf8');
+          } else {
+            fs.appendFileSync(correctionsFile, `${entry}\n`, 'utf8');
+          }
+          await adapter.sendMessage(msg.channelId, `📝 Correction recorded in \`corrections.md\`. Updating knowledge graph...`, { threadRootId: threadRoot });
+          // Set up stream then forward to AI session for knowledge graph update
+          const evPrev = eventLocks.get(msg.channelId) ?? Promise.resolve();
+          const evTask = evPrev.then(async () => {
+            const existingStream = activeStreams.get(msg.channelId);
+            if (existingStream) {
+              await streaming.finalizeStream(existingStream);
+              activeStreams.delete(msg.channelId);
+            }
+            initialStreamPosted.add(msg.channelId);
+            const streamKey = await streaming.startStream(msg.channelId, threadRoot);
+            activeStreams.set(msg.channelId, streamKey);
+          });
+          eventLocks.set(msg.channelId, evTask.catch(() => {}));
+          await evTask;
+          markBusy(msg.channelId);
+          await sessionManager.sendMessage(msg.channelId, CORRECTION_GRAPH_PROMPT(correction));
+          await waitForChannelIdle(msg.channelId);
+        } catch (err: any) {
+          log.error(`Failed to handle /correct on ${msg.channelId.slice(0, 8)}...:`, err);
+          markIdleImmediate(msg.channelId);
+          await adapter.sendMessage(msg.channelId, `❌ Failed to record correction: ${err?.message ?? 'unknown error'}`, { threadRootId: threadRoot });
+        }
+        break;
+      }
     }
     return;
   }
@@ -1966,6 +2004,10 @@ async function finalizeActivityFeed(channelId: string, adapter: ChannelAdapter):
 // --- Admin Session Nudge ---
 
 const NUDGE_PROMPT = `The bridge service was just restarted. If you were in the middle of a task, review your conversation history and continue where you left off. If you were not mid-task, respond with exactly: NO_REPLY`;
+
+/** Prompt sent to the AI session after a /correct command to update the knowledge graph. */
+const CORRECTION_GRAPH_PROMPT = (correction: string) =>
+  `The user has provided a factual correction: "${correction}"\n\nPlease:\n1. Acknowledge the correction.\n2. If a memory knowledge graph (MCP memory server) is available, update it with this correction using \`create_entities\`, \`add_observations\`, or \`create_relations\` as appropriate.\n3. Keep your response brief.`;
 
 async function nudgeAdminSessions(sessionManager: SessionManager): Promise<void> {
   const allSessions = getAllChannelSessions();
