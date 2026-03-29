@@ -1478,6 +1478,48 @@ async function handleInboundMessage(
         break;
       }
 
+      case 'save_correction': {
+        const correction = cmdResult.payload as string;
+        const workDir = channelConfig.workingDirectory;
+        if (!workDir) {
+          await adapter.sendMessage(msg.channelId, '⚠️ No working directory configured for this channel — cannot save correction.', { threadRootId: threadRoot });
+          break;
+        }
+        try {
+          const corrPath = path.join(workDir, 'corrections.md');
+          const section = '## User Corrections';
+          const bullet = `- ${correction}`;
+          let content = '';
+          try {
+            content = fs.readFileSync(corrPath, 'utf8');
+          } catch (readErr: any) {
+            if (readErr.code !== 'ENOENT') throw readErr;
+          }
+          if (!content.includes(section)) {
+            let prefix = '';
+            if (content) {
+              prefix = content.endsWith('\n') ? '\n' : '\n\n';
+            }
+            content = content + prefix + section + '\n\n' + bullet + '\n';
+          } else {
+            const sectionEnd = content.indexOf(section) + section.length;
+            const nextSectionIdx = content.indexOf('\n## ', sectionEnd);
+            if (nextSectionIdx === -1) {
+              content = content + (content.endsWith('\n') ? '' : '\n') + bullet + '\n';
+            } else {
+              content = content.slice(0, nextSectionIdx) + '\n' + bullet + content.slice(nextSectionIdx);
+            }
+          }
+          fs.mkdirSync(workDir, { recursive: true });
+          fs.writeFileSync(corrPath, content, 'utf8');
+          await adapter.sendMessage(msg.channelId, `✅ Correction saved: ${correction}`, { threadRootId: threadRoot });
+        } catch (err: any) {
+          log.error(`Failed to save correction on ${msg.channelId.slice(0, 8)}...:`, err);
+          await adapter.sendMessage(msg.channelId, `❌ Failed to save correction: ${err?.message ?? 'unknown error'}`, { threadRootId: threadRoot });
+        }
+        break;
+      }
+
       case 'toggle_autopilot': {
         try {
           const current = await sessionManager.getSessionMode(msg.channelId);
